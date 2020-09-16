@@ -1,0 +1,136 @@
+---
+title: "ABX discrimination of non-native consonant clusters"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+
+
+```{r, include="false"}
+rm(list=ls())
+d<- read.table("abx_dprime_scores.txt", header=T)
+stimuli<- read.table("ABX_stimuli_russian.txt", header=T)
+summary(d)
+summary(stimuli)
+```
+```{r, include="F"}
+#Packages
+
+require(plyr)
+library(plyr) # to calculate the mean, sd, ci using ddply()
+require(dplyr)
+library(dplyr)
+require(ggplot2)
+library(lsr) #effect size Cohen's d 
+require(lme4)
+library(lme4)
+require(lmerTest)
+library(lmerTest)
+library(lme4)
+library(emmeans) # post-hoc
+library(sjPlot)
+library(sjmisc)
+require(boot)
+library(boot)
+library(xtable) # latex code
+options(xtable.floating = FALSE)
+options(xtable.timestamp = "")
+```
+
+
+```{r,include=FALSE}
+data_lmm<-merge(d,stimuli, c("position","cluster"),all=T)
+
+
+data_lmm$ClusterType <- paste(data_lmm$cluster,data_lmm$position)
+data_lmm$ClusterType <- as.factor(data_lmm$ClusterType)
+```
+
+
+##Plot
+```{r,include="false"}
+#general 
+
+d_io <- ddply(d, c("position","cluster","language"),summarize,
+              n=sum(!is.na(d_io)),
+              m=mean(d_io,na.rm = TRUE),
+              sd=sd(d_io,na.rm = TRUE),
+              se=sd/sqrt(n),
+              ci=se * qt (.95,n-1))
+d_io
+
+
+plot_io<- ggplot(d_io, aes(x=cluster, y=m, group=language)) +   
+  geom_line(aes(color=language), size=1) + 
+  scale_color_manual(values=c('black','gray55'))+
+  geom_point(size=2, fill="white") + 
+  geom_errorbar(aes(ymin=m-ci,ymax=m+ci), width=0.2, size=.3) +   #for errorbar
+  scale_x_discrete(limits=c("tk","kt","tp","pt","nk")) + # for x aes order 
+  labs (x ="Clusters") +            # for x axis label
+  labs (y = "d-prime") +
+  ylim(0,3) +
+  #geom_hline(yintercept=1.1390804, linetype="dashed", color = "red",size=1.5) + 
+  theme(legend.title=element_blank()) +
+  facet_grid(. ~ position)
+
+plot_io
+```
+
+##Analysis: general 
+```{r}
+d_io <- ddply(d, "language",summarize,
+              n=sum(!is.na(d_io)),
+              m=mean(d_io,na.rm = TRUE),
+              sd=sd(d_io,na.rm = TRUE),
+              se=sd/sqrt(n),
+              ci=se * qt (.95,n-1))
+d_io
+
+```
+
+
+##Analysis: effect of phonotactic knowledge and cluster type (language + type of cluster)
+
+```{r}
+data_lmm$ClusterType <- relevel(data_lmm$ClusterType, ref = "kt initial")
+
+m_d_io <- lmer(d_io ~ language + ClusterType + (1 |participant),control=lmerControl(optimizer="bobyqa"), REML=FALSE,na.action=na.omit, data=data_lmm)
+m_d_io_1<- lmer(d_io ~  ClusterType + (1 |participant),control=lmerControl(optimizer="bobyqa"), REML=FALSE,na.action=na.omit, data=data_lmm)
+m_d_io_2 <- lmer(d_io ~ language + (1 |participant),control=lmerControl(optimizer="bobyqa"), REML=FALSE,na.action=na.omit, data=data_lmm)
+
+anova(m_d_io, m_d_io_1)
+anova(m_d_io, m_d_io_2)
+```
+
+## Effect of phonetic details for both Mandarin (non-native) and Russian (native) speakers (language + burst duration + burst intensity + language:burst duration + language:burst intensity)
+
+
+```{r}
+data_input<-subset(data_lmm, C1 != "NA")
+
+input_io <- lmer(d_io ~ language + C1 +  C1intensity_max +   language:(C1 + C1intensity_max) + (1 |participant) ,control=lmerControl(optimizer="bobyqa"), REML=FALSE,na.action=na.omit, data=data_input)
+
+input_io_1<-lmer(d_io ~ language +  C1intensity_max + language: C1intensity_max + (1 |participant) ,control=lmerControl(optimizer="bobyqa"), REML=FALSE,na.action=na.omit, data=data_input)
+
+input_io_2<-lmer(d_io ~  C1intensity_max  + (1 |participant) ,control=lmerControl(optimizer="bobyqa"), REML=FALSE,na.action=na.omit, data=data_input)
+
+input_io_3<-lmer(d_io ~ language  + (1 |participant) ,control=lmerControl(optimizer="bobyqa"), REML=FALSE,na.action=na.omit, data=data_input)
+
+anova(input_io,input_io_1)
+anova(input_io_1,input_io_2)
+anova(input_io_1,input_io_3)
+anova(input_io)
+
+```
+
+
+
+```{r}
+intensity_language<-plot_model(input_io, type = "pred", terms = c("C1intensity_max","language"), ylab("Predicted probability of survival"), xlab("Sex"), title = "", legend.title = "", wrap.title = "", colors = c("black", "gray55"), axis.title = "d-prime")
+dur_language<-plot_model(input_io, type = "pred", terms = c("C1","language"), axis.labels = "burst duration", title = "", legend.title = "", wrap.title = "", colors = c("black", "gray55"), axis.title = "d-prime")
+
+intensity_language
+dur_language
+
+```
+

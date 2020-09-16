@@ -1,0 +1,204 @@
+---
+title: 'Acoustic study: Identification'
+output:
+  pdf_document: default
+  html_notebook: default
+  word_document: default
+---
+```{r}
+rm(list=ls())
+data = read.csv("ex3_identification_mono.csv", header = TRUE)
+
+
+#packages
+
+require(car)
+require(lme4) #generalized linear mixed model
+require(emmeans) #Estimated marginal means (EMMs), a.k.a. least-squares means, are predictions on a reference grid of predictor settings, or marginal averages thereof
+library(emmeans)
+library(plyr) # to calculate the mean, sd, ci using ddply()
+library(ggplot2) # plot
+library(scales)  
+```
+### D-prime
+
+```{r,include=FALSE}
+
+data$HA<- ifelse(data$Response=="1"& data$Accuracy=="1", 1, 0)
+data$FA<- ifelse(data$Response=="1"& data$Accuracy=="0", 1, 0)
+
+
+####Calculate d-prime
+#############calculate hit and false alart in different conditions############################ 
+HA_cc <- ddply(data, c("Condition_cluster","subject","Condition_CV"),summarize,
+              m=mean(HA,na.rm = TRUE)*2
+)
+HA_cc
+
+HA_cc$dprime <- "HA_cc"
+FA_cc <- ddply(data, c("Condition_cluster","subject","Condition_CV"),summarize,
+              m=mean(FA,na.rm = TRUE)*2
+)
+FA_cc
+FA_cc$dprime<- "FA_cc"
+
+
+#misseat a data frame for dprime
+dprime <- rbind(HA_cc,FA_cc)
+dprime 
+
+write.table(dprime,"dprime_identification.txt",sep="\t",row.names=TRUE)
+
+# usage:
+# dprime(hit,fa,design="yes.no")
+#
+# arguments:
+#  {hit}{hit rates}
+#  {fa}{false alarm rates}
+
+dprime <- function(hit,fa,design="yes.no") {
+   d <- qnorm(hit) - qnorm(fa)
+   pc <-pnorm(d/2)
+   sqr2 <- sqrt(2)
+   switch(design,
+           "yes.no" = d,
+          "ABX.fixed" =   {
+             cc=rep(0,length(hit))
+             for (i in 1:length(hit)) {
+               cc[i]=dprime.abx.indepobs.model(hit[i],fa[i])
+             }
+             cc},
+          "ABX.roving" = {
+            cc=rep(0,length(hit))
+             for (i in 1:length(hit)) {
+               cc[i]=dprime.abx.differencing.model(hit[i],fa[i])
+             }
+            cc},
+          "reminder.fixed" = d,
+           "reminder.roving" = sqr2 * d
+           )
+}
+
+kl_djj<-dprime(0,design="yes.no")
+
+```
+
+###Graphy
+```{r}
+
+conf <- ddply(data, c("Condition_CV","Condition_cluster"),summarize,
+              n=sum(!is.na(Response)),
+              m=mean(Response),
+              sd=sd(Response),
+              se=sd/sqrt(n),
+              ci=se * qt (.975,n-1)
+)
+conf
+
+conf_sub <- ddply(data, c("subject", "Condition_CV","Condition_cluster"),summarize,
+              n=sum(!is.na(Response)),
+              m=mean(Response),
+              sd=sd(Response),
+              se=sd/sqrt(n),
+              ci=se * qt (.975,n-1)
+)
+conf_sub
+
+
+p1<- ggplot(conf, aes(x=Condition_cluster, y=m, fill=Condition_CV)) +              
+  geom_bar(stat="identity", position=position_dodge(), color="black", size=.3) +        
+  geom_errorbar(aes(ymin=m-ci,ymax=m+ci), width=0.2, size=.3, position=position_dodge(.9)) +   #for errorbar
+  scale_x_discrete(limits=c("kl", "kn", "kt", "tk","tp")) + # for x aes order 
+  theme(axis.text.x  = element_text(size=400)) + 
+  labs (x ="Clusters") +            # for x axis label
+  labs (y = "'Vowel' response (%)") +
+  scale_fill_manual(name="Structure", labels=c("CC", "CVC"), values=c("#CCCCCC","#FFFFFF")) +
+  scale_y_continuous(labels=percent, breaks=seq(0,1,0.2)) +
+  theme_bw() + 
+  theme(panel.grid.minor.x=element_blank(),
+        panel.grid.major.x=element_blank()) + 
+  theme(legend.title=element_text(size=11),
+        legend.position="right", 
+        legend.key = element_rect(colour = "white"), 
+        legend.background = element_rect(color = "grey")) + 
+  theme(axis.title.x = element_text(vjust= 0), axis.title.y = element_text(vjust=0.7))
+
+p1
+
+p2<- ggplot(conf_sub, aes(x=Condition_cluster, y=m, fill=Condition_CV)) +              
+  geom_bar(stat="identity", position=position_dodge(), color="black", size=.3) +    
+  #geom_errorbar(aes(ymin=m-ci,ymax=m+ci), width=0.2, size=.3, position=position_dodge(.9)) +
+  scale_x_discrete(limits=c("kl", "kn", "kt", "tk","tp")) + # for x aes order 
+  labs (x ="Clusters") +            # for x axis label
+  labs (y = "'Vowel' response (%)") +
+  scale_fill_manual(name="Structure", labels=c("CC", "CVC"), values=c("#CCCCCC","#FFFFFF")) +
+  scale_y_continuous(labels=percent, breaks=seq(0,1,0.2)) +
+  theme_bw() + 
+  theme(panel.grid.minor.x=element_blank(),
+        panel.grid.major.x=element_blank()) + 
+  theme(legend.title=element_text(size=11),
+        legend.position="right", 
+        legend.key = element_rect(colour = "white"), 
+        legend.background = element_rect(color = "grey")) + 
+  theme(axis.title.x = element_text(vjust= 0), axis.title.y = element_text(vjust=0.7)) +
+  facet_wrap( ~ subject, ncol=5)
+
+p2
+```
+
+###Analysis
+```{r}
+#Response and accuracy are factors.
+data$Response<-as.factor(data$Response)
+data$Accuracy<-as.factor(data$Accuracy)
+
+#Contrast coding
+contrasts(data$Condition_CV) <- contr.sum(2)
+
+library(MASS)
+data$Condition_cluster <- factor(data$Condition_cluster, levels=c("kl","kn","kt","tk","tp"))
+contrasts(data$Condition_cluster) <- contr.sdif(5)
+
+str(data)
+```
+
+####Frequency of the presence of the vowel
+```{r}
+frequency<- table(data$Response, data$Condition_CV)
+prop.table(frequency,1)
+```
+
+#### the effect of nativeness, cluter type
+```{r}
+m1 <- glmer(Response ~ Condition_CV * Condition_cluster + (1|subject) + (1|stimulus)
+          ,family=binomial, control = glmerControl(optCtrl = list(maxfun=10000000), optimizer="bobyqa"), data=data)
+#summary(m1)
+
+m2 <- glmer(Response ~ Condition_CV + Condition_cluster + (1|subject) + (1|stimulus)
+          ,family=binomial, control = glmerControl(optCtrl = list(maxfun=10000000), optimizer="bobyqa"), data=data)
+
+anova (m2, m1)
+
+m3 <- glmer(Response ~ Condition_cluster + (1|subject) + (1|stimulus)
+          ,family=binomial, control = glmerControl(optCtrl = list(maxfun=10000000), optimizer="bobyqa"), data=data)
+
+anova (m3, m2)
+
+m4 <- glmer(Response ~ Condition_CV + (1|subject) + (1|stimulus)
+          ,family=binomial, control = glmerControl(optCtrl = list(maxfun=10000000), optimizer="bobyqa"), data=data)
+
+anova (m4, m2)
+
+
+summary(emmeans(m1, pairwise~Condition_CV*Condition_cluster, adjust="tukey"))
+
+## affect of the duration of C1 release
+data$c1_rel = recode(data$c1_rel, "NA=0")
+m5 <- glmer(Response ~ c1_rel + Condition_cluster * Condition_CV + (1|subject) + (1|stimulus)
+             , family=binomial, control = glmerControl(optCtrl = list(maxfun=10000000), optimizer="bobyqa"), data=data)
+
+
+summary(m5)
+
+anova(m1,m5)
+```

@@ -1,0 +1,1915 @@
+---
+title: "Repetition of CC clusters by Mandarin speakers"
+output:
+  html_notebook: default
+  word_document: default
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r}
+rm(list=ls())
+
+# load data for different Outputs, insertion, change, deletion
+Russian_stimuli<-read.table("Trans_repetition_stimuli_russian.txt", header=T)
+names(Russian_stimuli)[names(Russian_stimuli) == "intensity"] <- "intensity_stimuli"
+names(Russian_stimuli)[names(Russian_stimuli) == "Burst"] <- "burst_stimuli"
+names(Russian_stimuli)[names(Russian_stimuli) == "CC"] <- "CC_stimuli"
+names(Russian_stimuli)[names(Russian_stimuli) == "IBI"] <- "IBI_stimuli"
+names(Russian_stimuli)[names(Russian_stimuli) == "IPI"] <- "IPI_stimuli"
+names(Russian_stimuli)[names(Russian_stimuli) == "Item"] <- "Token"
+
+
+dat_Outputs_full<-read.table("Outputs_voicing.txt", header=T)
+names(dat_Outputs_full)[names(dat_Outputs_full) == "Item"] <- "Token"
+dat_Outputs_all<-merge(dat_Outputs_full,Russian_stimuli[,c("Token","intensity_stimuli","burst_stimuli","CC_stimuli","IBI_stimuli","IPI_stimuli")], by="Token",all=T)
+dat_Outputs_nonnative<- dat_Outputs_all[dat_Outputs_all$Manners != "NS", ] 
+dat_Outputs_nonnative$Manners <- factor(dat_Outputs_nonnative$Manners) #drop removed levels 
+
+#data for acoustic properties of inserted vocoids 
+data_proper_midpointformants<-read.table("midpointFormants.txt", header=T)
+data_durations<-read.table("durationvoicing.txt", header=T)
+data_proper_all.0<-merge(data_proper_midpointformants,dat_Outputs_all, by="production",all=T)
+data_proper_all<-merge(data_proper_all.0,data_durations, by="production",all=T)
+data_proper_all$analysis<-ifelse(data_proper_all$C1_Del==1| data_proper_all$C2_Del==1 | data_proper_all$C1_Change == 1 | data_proper_all$C2_Change ==1 | data_proper_all$C_epenthesis ==1 |data_proper_all$C_prepenthesis ==1 |data_proper_all$others ==1, 0, 1)
+data_nk <- data_proper_all[data_proper_all$analysis ==1, ]
+data_nk$analysis<-factor(data_nk$analysis)
+data <- data_nk[data_nk$Manners != "NS", ] #remove levels 
+data$Manners <- factor(data$Manners)
+data$C1<-factor(data$C1)
+
+# data for acoustic timing lag (Entire CC, IPI, IBI)
+
+
+data_ss_ns <- data_nk[data_nk$Manners != "SL" & data_nk$Manners != "LS" & data_nk$Manners != "SN", ]
+data_ss_ns$Manners<-factor(data_ss_ns$Manners)
+data_ss<-subset(data_ss_ns, Manners != "NS")
+data_ss$Manners<-factor(data_ss$Manners)
+
+# Packages
+
+library(emuR) # Hertz to Bark Scale
+library(phonR) # Formants
+library(devtools)
+library(ggplot2)
+library(magrittr)
+library(ggpubr) # correlation plots
+library(dplyr)
+library(plyr)
+library(MCMCglmm)
+library(lme4)
+library(lmerTest)
+library(nlme) 
+library(afex)
+library("lattice")
+library(emmeans) # post-hoc
+library(lsmeans)
+#require(VGAM)
+#library(VGAM)
+library(xtable) # latex code
+options(xtable.floating = FALSE)
+options(xtable.timestamp = "")
+```
+
+
+### Frequency of inserted vocoids and other Outputs
+
+```{r}
+data_sn <- subset(dat_Outputs_all, Manners =="SN")
+
+Without_vocoid<-table(data_sn$Without_vocoid,data_sn$Conditions)
+Vocoid<-table(data_sn$Vocoid,data_sn$Conditions)
+Voicing<-table(data_sn$Voicing,data_sn$Conditions)
+C1_Del<-table(data_sn$C1_Del,data_sn$Conditions)
+C2_Del<-table(data_sn$C2_Del,data_sn$Conditions)
+C1_Change<-table(data_sn$C1_Change,data_sn$Conditions)
+C2_Change<-table(data_sn$C2_Change,data_sn$Conditions)
+Others1<-table(data_sn$C_epenthesis,data_sn$Conditions)
+Others2<-table(data_sn$C_prepenthesis,data_sn$Conditions)
+Others3<-table(data_sn$others,data_sn$Conditions)
+
+Without_vocoid
+Vocoid
+Voicing
+C1_Del
+C2_Del
+C1_Change
+C2_Change
+Others1
+Others2
+Others3
+
+```
+```{r}
+CC <- ddply(dat_Outputs_nonnative, "Conditions",summarize,
+                n=sum(!is.na(Without_vocoid)),
+                m=mean(Without_vocoid,na.rm = TRUE),
+                sd=sd(Without_vocoid,na.rm = TRUE),
+                se=sd/sqrt(n),
+                ci=se * qt (.95,n-1)
+)
+CC
+
+
+v <- ddply(dat_Outputs_nonnative, "Conditions",summarize,
+                n=sum(!is.na(Vocoid)),
+                m=mean(Vocoid,na.rm = TRUE),
+                sd=sd(Vocoid,na.rm = TRUE),
+                se=sd/sqrt(n),
+                ci=se * qt (.95,n-1)
+)
+v
+
+
+voicing<- ddply(dat_Outputs_nonnative, "Conditions",summarize,
+                n=sum(!is.na(Voicing)),
+                m=mean(Voicing,na.rm = TRUE),
+                sd=sd(Voicing,na.rm = TRUE),
+                se=sd/sqrt(n),
+                ci=se * qt (.95,n-1)
+)
+voicing
+
+```
+
+
+###Plot different Outputs
+```{r}
+
+conf_CC_nativeness <- ddply(dat_Outputs_nonnative, "Conditions",summarize,
+                n=sum(!is.na(Without_vocoid)),
+                m=mean(Without_vocoid,na.rm = TRUE),
+                sd=sd(Without_vocoid,na.rm = TRUE),
+                se=sd/sqrt(n),
+                ci=se * qt (.95,n-1)
+)
+conf_CC_nativeness
+
+conf_CC_nativeness$Outputs_nativeness <- "a_WithoutV" #add a colume
+
+
+conf_v_nativeness <- ddply(dat_Outputs_nonnative, "Conditions",summarize,
+                n=sum(!is.na(Vocoid)),
+                m=mean(Vocoid,na.rm = TRUE),
+                sd=sd(Vocoid,na.rm = TRUE),
+                se=sd/sqrt(n),
+                ci=se * qt (.95,n-1)
+)
+conf_v_nativeness
+
+conf_v_nativeness$Outputs_nativeness <- "b_WithV" #add a colume
+
+conf_voicing_nativeness <- ddply(dat_Outputs_nonnative, "Conditions",summarize,
+                n=sum(!is.na(Voicing)),
+                m=mean(Voicing,na.rm = TRUE),
+                sd=sd(Voicing,na.rm = TRUE),
+                se=sd/sqrt(n),
+                ci=se * qt (.95,n-1)
+)
+conf_voicing_nativeness
+
+conf_voicing_nativeness$Outputs_nativeness <- "b.1_WithVoicing" #add a colume
+
+conf_del1_nativeness <- ddply(dat_Outputs_nonnative, "Conditions",summarize,
+                   n=sum(!is.na(C1_Del)),
+                   m=mean(C1_Del,na.rm = TRUE),
+                   sd=sd(C1_Del,na.rm = TRUE),
+                   se=sd/sqrt(n),
+                   ci=se * qt (.95,n-1)
+)
+conf_del1_nativeness
+conf_del1_nativeness$Outputs_nativeness <- "c_C1deletion"
+
+conf_del2_nativeness <- ddply(dat_Outputs_nonnative, "Conditions",summarize,
+                   n=sum(!is.na(C2_Del)),
+                   m=mean(C2_Del,na.rm = TRUE),
+                   sd=sd(C2_Del,na.rm = TRUE),
+                   se=sd/sqrt(n),
+                   ci=se * qt (.95,n-1)
+)
+conf_del2_nativeness
+conf_del2_nativeness$Outputs_nativeness <- "d_C2deletion"
+
+conf_ch1_nativeness <- ddply(dat_Outputs_nonnative, "Conditions",summarize,
+                  n=sum(!is.na(C1_Change)),
+                  m=mean(C1_Change,na.rm = TRUE),
+                  sd=sd(C1_Change,na.rm = TRUE),
+                  se=sd/sqrt(n),
+                  ci=se * qt (.95,n-1)
+)
+conf_ch1_nativeness
+conf_ch1_nativeness$Outputs_nativeness <- "e_C1change"
+
+conf_ch2_nativeness <- ddply(dat_Outputs_nonnative, "Conditions",summarize,
+                  n=sum(!is.na(C2_Change)),
+                  m=mean(C2_Change,na.rm = TRUE),
+                  sd=sd(C2_Change,na.rm = TRUE),
+                  se=sd/sqrt(n),
+                  ci=se * qt (.95,n-1)
+)
+conf_ch2_nativeness
+conf_ch2_nativeness$Outputs_nativeness <- "f_C2change"
+
+#merge dat_Outputs_nonnative
+Outputs_dat_Outputs_nonnative.nativeness <- rbind(conf_CC_nativeness, conf_v_nativeness, conf_voicing_nativeness,conf_del1_nativeness, conf_del2_nativeness, conf_ch1_nativeness, conf_ch2_nativeness)
+summary(Outputs_dat_Outputs_nonnative.nativeness)
+
+library(ggplot2)
+library(scales)
+
+plot_nativeness<- ggplot(na.omit(Outputs_dat_Outputs_nonnative.nativeness), aes(x=Conditions, y=m, fill=Outputs_nativeness, order=Outputs_nativeness)) +
+  geom_bar(stat="identity", position=position_dodge())+
+  geom_bar(stat="identity", position=position_dodge(), color="black", size=.3) +        
+  geom_errorbar(aes(ymin=m-ci,ymax=m+ci), width=0.2, size=.3, position=position_dodge(.9)) +   #for errorbar
+  #scale_x_discrete(limits=c("SS","SN","SL","LS","NS")) + # for x aes order 
+  #facet_grid(Position ~ Conditions) +
+  labs (x ="") +            # for x axis label
+  labs (y = "Percent") +
+  scale_fill_manual(name="Outputs",
+                    breaks=c("a_WithoutV","b_WithV", "b.1_WithVoicing", "c_C1deletion", "d_C2deletion", "e_C1change", "f_C2change"),
+                    labels=c("Without V","With V", "With Voicing", "C1 deletion", "C2 deletion", "C1 change", "C2 change"),
+                    values = c("rosybrown", "coral4", "coral2", "grey10", "grey35", "grey60","grey87")) +
+
+  theme(axis.title.x = element_text(vjust= 0), axis.title.y = element_text(vjust=0.7)) 
+
+plot_nativeness
+
+
+```
+
+```{r}
+dat_Outputs_nonnative_cc <- dat_Outputs_nonnative[dat_Outputs_nonnative$Conditions== "CC", ]
+dat_Outputs_nonnative_cc$Conditions <- factor(dat_Outputs_nonnative_cc$Conditions)
+
+conf_CC <- ddply(dat_Outputs_nonnative_cc, c("Position","Manners"),summarize,
+                n=sum(!is.na(Without_vocoid)),
+                m=mean(Without_vocoid,na.rm = TRUE),
+                sd=sd(Without_vocoid,na.rm = TRUE),
+                se=sd/sqrt(n),
+                ci=se * qt (.95,n-1)
+)
+conf_CC
+
+conf_CC$Outputs <- "a_WithoutV" #add a colume
+
+
+conf_v <- ddply(dat_Outputs_nonnative_cc, c("Position","Manners"),summarize,
+                n=sum(!is.na(Vocoid)),
+                m=mean(Vocoid,na.rm = TRUE),
+                sd=sd(Vocoid,na.rm = TRUE),
+                se=sd/sqrt(n),
+                ci=se * qt (.95,n-1)
+)
+conf_v
+
+conf_v$Outputs <- "b_WithV" #add a colume
+
+conf_voicing <- ddply(dat_Outputs_nonnative_cc, c("Position","Manners"),summarize,
+                n=sum(!is.na(Voicing)),
+                m=mean(Voicing,na.rm = TRUE),
+                sd=sd(Voicing,na.rm = TRUE),
+                se=sd/sqrt(n),
+                ci=se * qt (.95,n-1)
+)
+conf_voicing
+
+conf_voicing$Outputs <- "b.1_WithVoicing" #add a colume
+
+conf_del1 <- ddply(dat_Outputs_nonnative_cc, c("Position","Manners"),summarize,
+                   n=sum(!is.na(C1_Del)),
+                   m=mean(C1_Del,na.rm = TRUE),
+                   sd=sd(C1_Del,na.rm = TRUE),
+                   se=sd/sqrt(n),
+                   ci=se * qt (.95,n-1)
+)
+conf_del1
+conf_del1$Outputs <- "c_C1deletion"
+
+conf_del2 <- ddply(dat_Outputs_nonnative_cc, c("Position","Manners"),summarize,
+                   n=sum(!is.na(C2_Del)),
+                   m=mean(C2_Del,na.rm = TRUE),
+                   sd=sd(C2_Del,na.rm = TRUE),
+                   se=sd/sqrt(n),
+                   ci=se * qt (.95,n-1)
+)
+conf_del2
+conf_del2$Outputs <- "d_C2deletion"
+
+conf_ch1 <- ddply(dat_Outputs_nonnative_cc, c("Position","Manners"),summarize,
+                  n=sum(!is.na(C1_Change)),
+                  m=mean(C1_Change,na.rm = TRUE),
+                  sd=sd(C1_Change,na.rm = TRUE),
+                  se=sd/sqrt(n),
+                  ci=se * qt (.95,n-1)
+)
+conf_ch1
+conf_ch1$Outputs <- "e_C1change"
+
+conf_ch2 <- ddply(dat_Outputs_nonnative_cc, c("Position","Manners"),summarize,
+                  n=sum(!is.na(C2_Change)),
+                  m=mean(C2_Change,na.rm = TRUE),
+                  sd=sd(C2_Change,na.rm = TRUE),
+                  se=sd/sqrt(n),
+                  ci=se * qt (.95,n-1)
+)
+conf_ch2
+conf_ch2$Outputs <- "f_C2change"
+
+#merge dat_Outputs_nonnative
+Outputs_dat_Outputs_nonnative_cc <- rbind(conf_CC, conf_v, conf_voicing,conf_del1, conf_del2, conf_ch1, conf_ch2)
+Outputs_dat_Outputs_nonnative_cc
+
+library(ggplot2)
+library(scales)
+
+plot_strategy<- ggplot(na.omit(Outputs_dat_Outputs_nonnative_cc), aes(x=Manners, y=m, fill=Outputs, order=Outputs)) +
+  #geom_bar(stat="identity", position=position_dodge())+
+  geom_bar(stat="identity", position=position_dodge(), color="black", size=.3) +        
+  geom_errorbar(aes(ymin=m-ci,ymax=m+ci), width=0.2, size=.3, position=position_dodge(.9)) +   #for errorbar
+  scale_x_discrete(limits=c("SS","SN","SL","LS")) + # for x aes order 
+  facet_grid(Position ~ .) +
+  labs (x ="") +            # for x axis label
+  labs (y = "Percent") +
+  scale_fill_manual(name="Outputs",
+                    breaks=c("a_WithoutV","b_WithV", "b.1_WithVoicing", "c_C1deletion", "d_C2deletion", "e_C1change", "f_C2change"),
+                    labels=c("Without V","With V", "With Voicing", "C1 deletion", "C2 deletion", "C1 change", "C2 change"),
+                    values = c("rosybrown", "coral4", "coral2", "grey10", "grey35", "grey60","grey87")) +
+
+  theme(axis.title.x = element_text(vjust= 0), axis.title.y = element_text(vjust=0.7)) 
+
+plot_strategy
+
+```
+Individual participants
+```{r}
+conf_CC <- ddply(dat_Outputs_nonnative, c("Conditions","Participants"),summarize,
+                n=sum(!is.na(Without_vocoid)),
+                m=mean(Without_vocoid,na.rm = TRUE),
+                sd=sd(Without_vocoid,na.rm = TRUE),
+                se=sd/sqrt(n),
+                ci=se * qt (.95,n-1)
+)
+conf_CC
+
+conf_CC$Outputs <- "a_WithoutV" #add a colume
+
+
+conf_v <- ddply(dat_Outputs_nonnative, c("Conditions","Participants"),summarize,
+                n=sum(!is.na(Vocoid)),
+                m=mean(Vocoid,na.rm = TRUE),
+                sd=sd(Vocoid,na.rm = TRUE),
+                se=sd/sqrt(n),
+                ci=se * qt (.95,n-1)
+)
+conf_v
+
+conf_v$Outputs <- "b_WithV" #add a colume
+
+conf_voicing <- ddply(dat_Outputs_nonnative, c("Conditions","Participants"),summarize,
+                n=sum(!is.na(Voicing)),
+                m=mean(Voicing,na.rm = TRUE),
+                sd=sd(Voicing,na.rm = TRUE),
+                se=sd/sqrt(n),
+                ci=se * qt (.95,n-1)
+)
+conf_voicing
+
+conf_voicing$Outputs <- "b.1_WithVoicing" #add a colume
+
+conf_del1 <- ddply(dat_Outputs_nonnative, c("Conditions","Participants"),summarize,
+                   n=sum(!is.na(C1_Del)),
+                   m=mean(C1_Del,na.rm = TRUE),
+                   sd=sd(C1_Del,na.rm = TRUE),
+                   se=sd/sqrt(n),
+                   ci=se * qt (.95,n-1)
+)
+conf_del1
+conf_del1$Outputs <- "c_C1deletion"
+
+conf_del2 <- ddply(dat_Outputs_nonnative, c("Conditions","Participants"),summarize,
+                   n=sum(!is.na(C2_Del)),
+                   m=mean(C2_Del,na.rm = TRUE),
+                   sd=sd(C2_Del,na.rm = TRUE),
+                   se=sd/sqrt(n),
+                   ci=se * qt (.95,n-1)
+)
+conf_del2
+conf_del2$Outputs <- "d_C2deletion"
+
+conf_ch1 <- ddply(dat_Outputs_nonnative, c("Conditions","Participants"),summarize,
+                  n=sum(!is.na(C1_Change)),
+                  m=mean(C1_Change,na.rm = TRUE),
+                  sd=sd(C1_Change,na.rm = TRUE),
+                  se=sd/sqrt(n),
+                  ci=se * qt (.95,n-1)
+)
+conf_ch1
+conf_ch1$Outputs <- "e_C1change"
+
+conf_ch2 <- ddply(dat_Outputs_nonnative, c("Conditions","Participants"),summarize,
+                  n=sum(!is.na(C2_Change)),
+                  m=mean(C2_Change,na.rm = TRUE),
+                  sd=sd(C2_Change,na.rm = TRUE),
+                  se=sd/sqrt(n),
+                  ci=se * qt (.95,n-1)
+)
+conf_ch2
+conf_ch2$Outputs <- "f_C2change"
+
+#merge dat_Outputs_nonnative
+Outputs_dat_Outputs_nonnative_participant <- rbind(conf_CC, conf_v, conf_voicing,conf_del1, conf_del2, conf_ch1, conf_ch2)
+
+Outputs_dat_Outputs_nonnative_participant$Outputs<-as.factor(Outputs_dat_Outputs_nonnative_participant$Outputs)
+summary(Outputs_dat_Outputs_nonnative_participant)
+Outputs_dat_Outputs_nonnative_participant
+
+library(ggplot2)
+library(scales)
+
+plot_strategy_participant<- ggplot(na.omit(Outputs_dat_Outputs_nonnative_participant), aes(x=Conditions, y=m, fill=Outputs, order=Outputs)) +
+  geom_bar(stat="identity", position=position_dodge())+
+  #geom_bar(stat="identity", position=position_dodge(), color="black", size=.3) +        
+  geom_errorbar(aes(ymin=m-ci,ymax=m+ci), width=0.2, size=.3, position=position_dodge(.9)) +   #for errorbar
+  #scale_x_discrete(limits=c("SS","SN","SL")) + # for x aes order 
+  facet_wrap(~Participants) +
+  labs (x ="") +            # for x axis label
+  labs (y = "Percent") +
+  scale_fill_manual(name="Outputs",
+                    breaks=c("a_WithoutV","b_WithV", "b.1_WithVoicing", "c_C1deletion", "d_C2deletion", "e_C1change", "f_C2change"),
+                    labels=c("Without V","With V", "With Voicing", "C1 deletion", "C2 deletion", "C1 change", "C2 change"),
+                    values = c("rosybrown", "coral4", "coral2", "grey10", "grey35", "grey60","grey87")) +
+
+  theme(axis.title.x = element_text(vjust= 0), axis.title.y = element_text(vjust=0.7)) 
+
+plot_strategy_participant
+
+```
+
+
+
+####Stop-stop clusters
+####Plot
+
+```{r}
+data_ss <- dat_Outputs_nonnative[dat_Outputs_nonnative$Manners== "SS", ]
+data_ss<-data_ss[!is.na(data_ss$burst_stimuli), ]
+
+
+
+conf_CC <- ddply(data_ss, c("Position","Clusters","Conditions"),summarize,
+                n=sum(!is.na(Without_vocoid)),
+                m=mean(Without_vocoid,na.rm = TRUE),
+                sd=sd(Without_vocoid,na.rm = TRUE),
+                se=sd/sqrt(n),
+                ci=se * qt (.95,n-1)
+)
+conf_CC
+
+conf_CC$Outputs <- "a_WithoutV" #add a colume
+
+
+conf_v <- ddply(data_ss, c("Position","Clusters","Conditions"),summarize,
+                n=sum(!is.na(Vocoid)),
+                m=mean(Vocoid,na.rm = TRUE),
+                sd=sd(Vocoid,na.rm = TRUE),
+                se=sd/sqrt(n),
+                ci=se * qt (.95,n-1)
+)
+conf_v
+
+conf_v$Outputs <- "b_WithV" #add a colume
+
+conf_voicing <- ddply(data_ss, c("Position","Clusters","Conditions"),summarize,
+                n=sum(!is.na(Voicing)),
+                m=mean(Voicing,na.rm = TRUE),
+                sd=sd(Voicing,na.rm = TRUE),
+                se=sd/sqrt(n),
+                ci=se * qt (.95,n-1)
+)
+conf_voicing
+
+conf_voicing$Outputs <- "b.1_WithVoicing" #add a colume
+
+conf_del1 <- ddply(data_ss, c("Position","Clusters","Conditions"),summarize,
+                   n=sum(!is.na(C1_Del)),
+                   m=mean(C1_Del,na.rm = TRUE),
+                   sd=sd(C1_Del,na.rm = TRUE),
+                   se=sd/sqrt(n),
+                   ci=se * qt (.95,n-1)
+)
+conf_del1
+conf_del1$Outputs <- "c_C1deletion"
+
+conf_del2 <- ddply(data_ss, c("Position","Clusters","Conditions"),summarize,
+                   n=sum(!is.na(C2_Del)),
+                   m=mean(C2_Del,na.rm = TRUE),
+                   sd=sd(C2_Del,na.rm = TRUE),
+                   se=sd/sqrt(n),
+                   ci=se * qt (.95,n-1)
+)
+conf_del2
+conf_del2$Outputs <- "d_C2deletion"
+
+conf_ch1 <- ddply(data_ss, c("Position","Clusters","Conditions"),summarize,
+                  n=sum(!is.na(C1_Change)),
+                  m=mean(C1_Change,na.rm = TRUE),
+                  sd=sd(C1_Change,na.rm = TRUE),
+                  se=sd/sqrt(n),
+                  ci=se * qt (.95,n-1)
+)
+conf_ch1
+conf_ch1$Outputs <- "e_C1change"
+
+conf_ch2 <- ddply(data_ss, c("Position","Clusters","Conditions"),summarize,
+                  n=sum(!is.na(C2_Change)),
+                  m=mean(C2_Change,na.rm = TRUE),
+                  sd=sd(C2_Change,na.rm = TRUE),
+                  se=sd/sqrt(n),
+                  ci=se * qt (.95,n-1)
+)
+conf_ch2
+conf_ch2$Outputs <- "f_C2change"
+
+#merge dat_Outputs_nonnative
+Outputs_ss <- rbind(conf_CC, conf_v, conf_voicing,conf_del1, conf_del2, conf_ch1, conf_ch2)
+Outputs_ss
+
+library(ggplot2)
+library(scales)
+
+plot_strategy_ss<- ggplot(na.omit(Outputs_ss), aes(x=Clusters, y=m, fill=Outputs, order=Outputs)) +
+  #geom_bar(stat="identity", position=position_dodge())+
+  geom_bar(stat="identity", position=position_dodge(), color="black", size=.3) +        
+  geom_errorbar(aes(ymin=m-ci,ymax=m+ci), width=0.2, size=.3, position=position_dodge(.9)) +   #for errorbar
+  scale_x_discrete(limits=c("kt","tk","pt","tp")) + # for x aes order 
+  facet_grid(Position ~ Conditions) +
+  labs (x ="") +            # for x axis label
+  labs (y = "Percent") +
+  scale_fill_manual(name="Outputs",
+                    breaks=c("a_WithoutV","b_WithV", "b.1_WithVoicing", "c_C1deletion", "d_C2deletion", "e_C1change", "f_C2change"),
+                    labels=c("Without V","With V", "With Voicing", "C1 deletion", "C2 deletion", "C1 change", "C2 change"),
+                    values = c("rosybrown", "coral4", "coral2", "grey10", "grey35", "grey60","grey87")) +
+
+  theme(axis.title.x = element_text(vjust= 0), axis.title.y = element_text(vjust=0.7)) 
+
+plot_strategy_ss
+
+```
+```{r}
+
+data_ss$Vocoid<-as.factor(data_ss$Vocoid)
+data_ss$Without_vocoid<-as.factor(data_ss$Without_vocoid)
+data_ss$Voicing<-as.factor(data_ss$Voicing)
+data_ss$C1_Del<-as.factor(data_ss$C1_Del)
+data_ss$C2_Del<-as.factor(data_ss$C2_Del)
+data_ss$C1_Change<-as.factor(data_ss$C1_Change)
+data_ss$C2_Change<-as.factor(data_ss$C2_Change)
+#data_ss<-data_ss[!is.na(data_ss$Vocoid), ]
+#data_ss<-data_ss[!is.na(data_ss$Burst), ]
+#data_ss<-data_ss[!is.na(data_ss$intensity), ]
+
+```
+
+```{r}
+data_proper_cc<-subset(data_proper_all, Conditions == "CC")
+data_proper_cc<-subset(data_proper_cc,Manners !="NS")
+
+k <- 7 # the number of categories in our outcome variable
+#I and J are matrices that we???ll use to set up constraints on the covariance structure of the residuals.see Course Notes P96
+I <- diag(k-1) #should make matrix of 0's with diagonal of 1's, dimensions k-1 rows and k-1 columns
+J <- matrix(rep(1, (k-1)^2), c(k-1, k-1)) # should make k-1 x k-1 matrix of 1's 
+
+
+prior.m_cc <- list(
+  R = list (fix=1, V=(1/k) * (I+J), n=k-1), 
+  G=list(
+    G1=list(V = diag(6),    # G1, G2, G3 is the prior definition for subject random effects. 
+            n = 6)))
+    #G2=list(V = diag(6),
+           # n = 6)))
+
+m_cc<- MCMCglmm(cbind(Voicing,Vocoid,C1_Del,C2_Del,C1_Change,C2_Change,Without_vocoid) ~  trait + trait:Position + trait:Manners + trait:Position:Manners -1 + trait:burst_stimuli + trait:intensity_stimuli,
+              # Vowel the final category is the baseline category, 
+               random = ~ us(trait) : Participants,
+                          #us(trait) : Item, # us() : subject for random effects
+               rcov   = ~ us(trait):units, 
+               data   = data_proper_cc,
+               family = "multinomial7",
+               prior  = prior.m_cc,
+              
+              # pl=TRUE,
+               slice = TRUE,
+               # singular.ok=TRUE,
+               thin   = 10,        # 3 parameters to set to control the sampling process: nitt, burnin and thin. thin=n means want to keep every n-th sample.
+               burnin = 5001,       # burn-in period after which we start collecting samples
+               nitt   = 150001)       # how many samples we want to produce overall 
+
+summary(m_cc)
+HPDinterval(m_cc$Sol, 0.95)
+
+par(mfrow=c(8,2), mar=c(2,2,1,0))
+plot(m_cc$Sol)
+
+par(mfrow=c(8,2), mar=c(2,2,1,0))
+autocorr.plot(m_cc$Sol)
+
+str(dat_strategies_nonnative_cc)
+```
+
+
+```{r}
+
+contrasts(data_ss$Conditions) <- contr.sum(2)
+contrasts(data_ss$Position) <- contr.sum(2)
+
+k <- 7 # the number of categories in our outcome variable
+#I and J are matrices that we???ll use to set up constraints on the covariance structure of the residuals.see Course Notes P96
+I <- diag(k-1) #should make matrix of 0's with diagonal of 1's, dimensions k-1 rows and k-1 columns
+J <- matrix(rep(1, (k-1)^2), c(k-1, k-1)) # should make k-1 x k-1 matrix of 1's 
+
+prior.ss <- list(
+  R = list (fix=1, V=(1/k) * (I+J), n=k-1), 
+  G=list(
+    G1=list(V = diag(6),    # G1, G2, G3 is the prior definition for subject random effects. 
+            n = 6),
+    G1=list(V = diag(2),    # G1, G2, G3 is the prior definition for subject random effects. 
+            n = 2),
+    G1=list(V = diag(2),    # G1, G2, G3 is the prior definition for subject random effects. 
+            n = 2),
+    G1=list(V = diag(1),    # G1, G2, G3 is the prior definition for subject random effects. 
+            n = 1),
+    G1=list(V = diag(1),    # G1, G2, G3 is the prior definition for subject random effects. 
+            n = 1),
+    G2=list(V = diag(6),
+            n = 6),
+    G1=list(V = diag(2),    # G1, G2, G3 is the prior definition for subject random effects. 
+            n = 2),
+    G1=list(V = diag(2),    # G1, G2, G3 is the prior definition for subject random effects. 
+            n = 2)))
+
+m.ss<- MCMCglmm(cbind(Voicing,C1_Del,C2_Del,C1_Change,C2_Change,Without_vocoid,Vocoid) ~  trait-1 + trait:Conditions*Position + trait:intensity_stimuli + trait:burst_stimuli,
+              # Vowel the final Outputs is the baseline Outputs, 
+               random = ~ us(trait) : Participants +
+                          us(Conditions) : Participants +
+                          us(Position) : Participants +
+                          us(intensity_stimuli) : Participants + 
+                          us(burst_stimuli) : Participants +
+                          us(trait) : Token + 
+                          us(Conditions) : Token + 
+                          us(Position) : Token,
+                          #us(Conditions) : Clusters,
+                # us() : subject for random effects
+               rcov   = ~ us(trait):units, 
+               data   = data_ss,
+               family = "multinomial7",
+               prior  = prior.ss,
+              # pl=TRUE,
+               slice = TRUE,
+               #singular.ok=TRUE,
+               thin   = 25,        # 3 parameters to set to control the sampling process: nitt, burnin and thin. thin=n means want to keep every n-th sample.
+               burnin = 10000,       # burn-in period after which we start collecting samples
+               nitt   = 50000)       # how many samples we want to produce overall  #120000
+                          #The model was ran for 60,000 iterations with a burn-in phase of 10,000 and a thinning interval of 25
+
+summary(m.ss)
+HPDinterval(m.ss$Sol, 0.95)
+
+par(mfrow=c(8,2), mar=c(2,2,1,0))
+plot(m.ss$Sol)
+
+par(mfrow=c(8,2), mar=c(2,2,1,0))
+autocorr.plot(m.ss$Sol)
+
+```
+
+
+
+
+
+####individual clusters
+```{r}
+data_ss_cc<-subset(data_ss, Conditions =="CC")
+prior.modif.ss = list(R = list(V = 10, fix = 1), G = list(G1 = list(V = 1, nu = 1, alpha.mu = 0, alpha.V = 1000)))
+
+data_ss_cc <- within(data_ss_cc, Item <- relevel(Item, ref = "kt medial"))
+modif.withouV.ss<- MCMCglmm(Without_vocoid ~ Item, random = ~Participants, data = data_ss_cc, family = "categorical", prior = prior.modif.ss, verbose = FALSE)
+summary(modif.withouV.ss)
+
+data_ss_cc <- within(data_ss_cc, Item <- relevel(Item, ref = "pt medial"))
+modif.vowel.ss<- MCMCglmm(Vocoid ~ Item, random = ~Participants, data = data_ss_cc, family = "categorical", prior = prior.modif.ss, verbose = FALSE)
+summary(modif.vowel.ss)
+
+modif.voicing.ss<- MCMCglmm(Voicing ~ Item, random = ~Participants, data = data_ss_cc, family = "categorical", prior = prior.modif.ss, verbose = FALSE)
+summary(modif.voicing.ss)
+
+modif.C1del.ss<- MCMCglmm(C1_Del ~ Item, random = ~Participants, data = data_ss_cc, family = "categorical", prior = prior.modif.ss, verbose = FALSE)
+summary(modif.C1del.ss)
+
+
+modif.C2del.ss<- MCMCglmm(C2_Del ~ Item, random = ~Participants, data = data_ss_cc, family = "categorical", prior = prior.modif.ss, verbose = FALSE)
+summary(modif.C2del.ss)
+
+data_ss_cc <- within(data_ss_cc, Item <- relevel(Item, ref = "tk medial"))
+modif.C1chg.ss<- MCMCglmm(C1_Change ~ Item, random = ~Participants, data = data_ss_cc, family = "categorical", prior = prior.modif.ss, verbose = FALSE)
+summary(modif.C1chg.ss)
+
+modif.C2chg.ss<- MCMCglmm(C2_Change ~ Item, random = ~Participants, data = data_ss_cc, family = "categorical", prior = prior.modif.ss, verbose = FALSE)
+summary(modif.C2chg.ss)
+```
+
+###SN clusters
+
+```{r}
+data_sn <- dat_Outputs_nonnative[dat_Outputs_nonnative$Manners== "SN", ]
+data_sn<-data_sn[!is.na(data_sn$burst_stimuli), ]
+data_sn$Item <- paste(data_sn$Clusters,data_sn$Position)
+data_sn$Item <- as.factor(data_sn$Item)
+
+
+conf_CC <- ddply(data_sn, c("Position","Clusters","Conditions"),summarize,
+                n=sum(!is.na(Without_vocoid)),
+                m=mean(Without_vocoid,na.rm = TRUE),
+                sd=sd(Without_vocoid,na.rm = TRUE),
+                se=sd/sqrt(n),
+                ci=se * qt (.95,n-1)
+)
+conf_CC
+
+conf_CC$Outputs <- "a_WithoutV" #add a colume
+
+
+conf_v <- ddply(data_sn, c("Position","Clusters","Conditions"),summarize,
+                n=sum(!is.na(Vocoid)),
+                m=mean(Vocoid,na.rm = TRUE),
+                sd=sd(Vocoid,na.rm = TRUE),
+                se=sd/sqrt(n),
+                ci=se * qt (.95,n-1)
+)
+conf_v
+
+conf_v$Outputs <- "b_WithV" #add a colume
+
+conf_voicing <- ddply(data_sn, c("Position","Clusters","Conditions"),summarize,
+                n=sum(!is.na(Voicing)),
+                m=mean(Voicing,na.rm = TRUE),
+                sd=sd(Voicing,na.rm = TRUE),
+                se=sd/sqrt(n),
+                ci=se * qt (.95,n-1)
+)
+conf_voicing
+
+conf_voicing$Outputs <- "b.1_WithVoicing" #add a colume
+
+conf_del1 <- ddply(data_sn, c("Position","Clusters","Conditions"),summarize,
+                   n=sum(!is.na(C1_Del)),
+                   m=mean(C1_Del,na.rm = TRUE),
+                   sd=sd(C1_Del,na.rm = TRUE),
+                   se=sd/sqrt(n),
+                   ci=se * qt (.95,n-1)
+)
+conf_del1
+conf_del1$Outputs <- "c_C1deletion"
+
+conf_del2 <- ddply(data_sn, c("Position","Clusters","Conditions"),summarize,
+                   n=sum(!is.na(C2_Del)),
+                   m=mean(C2_Del,na.rm = TRUE),
+                   sd=sd(C2_Del,na.rm = TRUE),
+                   se=sd/sqrt(n),
+                   ci=se * qt (.95,n-1)
+)
+conf_del2
+conf_del2$Outputs <- "d_C2deletion"
+
+conf_ch1 <- ddply(data_sn, c("Position","Clusters","Conditions"),summarize,
+                  n=sum(!is.na(C1_Change)),
+                  m=mean(C1_Change,na.rm = TRUE),
+                  sd=sd(C1_Change,na.rm = TRUE),
+                  se=sd/sqrt(n),
+                  ci=se * qt (.95,n-1)
+)
+conf_ch1
+conf_ch1$Outputs <- "e_C1change"
+
+conf_ch2 <- ddply(data_sn, c("Position","Clusters","Conditions"),summarize,
+                  n=sum(!is.na(C2_Change)),
+                  m=mean(C2_Change,na.rm = TRUE),
+                  sd=sd(C2_Change,na.rm = TRUE),
+                  se=sd/sqrt(n),
+                  ci=se * qt (.95,n-1)
+)
+conf_ch2
+conf_ch2$Outputs <- "f_C2change"
+
+#merge dat_Outputs_nonnative
+Outputs_sn <- rbind(conf_CC, conf_v, conf_voicing,conf_del1, conf_del2, conf_ch1, conf_ch2)
+Outputs_sn
+
+library(ggplot2)
+library(scales)
+
+plot_strategy_sn<- ggplot(na.omit(Outputs_sn), aes(x=Clusters, y=m, fill=Outputs, order=Outputs)) +
+  #geom_bar(stat="identity", position=position_dodge())+
+  geom_bar(stat="identity", position=position_dodge(), color="black", size=.3) +        
+  geom_errorbar(aes(ymin=m-ci,ymax=m+ci), width=0.2, size=.3, position=position_dodge(.9)) +   #for errorbar
+  scale_x_discrete(limits=c("kn")) + # for x aes order 
+  facet_grid(Position ~ Conditions) +
+  labs (x ="") +            # for x axis label
+  labs (y = "Percent") +
+  scale_fill_manual(name="Outputs",
+                    breaks=c("a_WithoutV","b_WithV", "b.1_WithVoicing", "c_C1deletion", "d_C2deletion", "e_C1change", "f_C2change"),
+                    labels=c("Without V","With V", "With Voicing", "C1 deletion", "C2 deletion", "C1 change", "C2 change"),
+                    values = c("rosybrown", "coral4", "coral2", "grey10", "grey35", "grey60","grey87")) +
+
+  theme(axis.title.x = element_text(vjust= 0), axis.title.y = element_text(vjust=0.7)) 
+
+plot_strategy_sn
+
+```
+
+```{r}
+
+contrasts(data_sn$Conditions) <- contr.sum(2)
+
+k <- 7 # the number of categories in our outcome variable
+#I and J are matrices that we???ll use to set up constraints on the covariance structure of the residuals.see Course Notes P96
+I <- diag(k-1) #should make matrix of 0's with diagonal of 1's, dimensions k-1 rows and k-1 columns
+J <- matrix(rep(1, (k-1)^2), c(k-1, k-1)) # should make k-1 x k-1 matrix of 1's 
+
+prior.sn <- list(
+  R = list (fix=1, V=(1/k) * (I+J), n=k-1), 
+  G=list(
+    G1=list(V = diag(6),    # G1, G2, G3 is the prior definition for subject random effects. 
+            n = 6),
+    G2=list(V = diag(6),
+            n = 6)))
+
+m.sn<- MCMCglmm(cbind(Voicing,C1_Del,C2_Del,C1_Change,C2_Change,Without_vocoid,Vocoid) ~  trait-1 + trait:(Conditions + intensity_stimuli + burst_stimuli),
+              # Vowel the final Outputs is the baseline Outputs, 
+               random = ~ us(trait) : Participants +
+                          #us(Conditions) : Participants +
+                          us(trait) : Token,
+                          #us(Conditions) : Clusters,
+                # us() : subject for random effects
+               rcov   = ~ us(trait):units, 
+               data   = data_sn,
+               family = "multinomial7",
+               prior  = prior.sn,
+              # pl=TRUE,
+               slice = TRUE,
+               #singular.ok=TRUE,
+               thin   = 10,        # 3 parameters to set to control the sampling process: nitt, burnin and thin. thin=n means want to keep every n-th sample.
+               burnin = 5000,       # burn-in period after which we start collecting samples
+               nitt   = 100000)       # how many samples we want to produce overall  #120000
+                          #The model was ran for 60,000 iterations with a burn-in phase of 10,000 and a thinning interval of 25
+summary(m.sn)
+HPDinterval(m.sn$Sol, 0.95)
+
+par(mfrow=c(8,2), mar=c(2,2,1,0))
+plot(m.sn$Sol)
+
+par(mfrow=c(8,2), mar=c(2,2,1,0))
+autocorr.plot(m.sn$Sol)
+
+```
+
+####individual clusters
+```{r}
+data_sn_cc<-subset(data_sn, Conditions =="CC")
+prior.modif.sn = list(R = list(V = 10, fix = 1), G = list(G1 = list(V = 1, nu = 1, alpha.mu = 0, alpha.V = 1000)))
+
+#data_sn_cc <- within(data_sn_cc, Item <- relevel(Item, ref = "kt medial"))
+modif.withouV.sn<- MCMCglmm(Without_vocoid ~ Item + , random = ~Participants, data = data_sn_cc, family = "categorical", prior = prior.modif.sn, verbose = FALSE)
+summary(modif.withouV.sn)
+
+#data_sn_cc <- within(data_sn_cc, Item <- relevel(Item, ref = "pt medial"))
+modif.vowel.sn<- MCMCglmm(Vocoid ~ Item, random = ~Participants, data = data_sn_cc, family = "categorical", prior = prior.modif.sn, verbose = FALSE)
+summary(modif.vowel.sn)
+
+modif.voicing.sn<- MCMCglmm(Voicing ~ Item, random = ~Participants, data = data_sn_cc, family = "categorical", prior = prior.modif.sn, verbose = FALSE)
+summary(modif.voicing.sn)
+
+modif.C1del.sn<- MCMCglmm(C1_Del ~ Item, random = ~Participants, data = data_sn_cc, family = "categorical", prior = prior.modif.sn, verbose = FALSE)
+summary(modif.C1del.sn)
+
+
+modif.C2del.sn<- MCMCglmm(C2_Del ~ Item, random = ~Participants, data = data_sn_cc, family = "categorical", prior = prior.modif.sn, verbose = FALSE)
+summary(modif.C2del.sn)
+
+data_sn_cc <- within(data_sn_cc, Item <- relevel(Item, ref = "tk medial"))
+modif.C1chg.sn<- MCMCglmm(C1_Change ~ Item, random = ~Participants, data = data_sn_cc, family = "categorical", prior = prior.modif.sn, verbose = FALSE)
+summary(modif.C1chg.sn)
+
+modif.C2chg.sn<- MCMCglmm(C2_Change ~ Item, random = ~Participants, data = data_sn_cc, family = "categorical", prior = prior.modif.sn, verbose = FALSE)
+summary(modif.C2chg.sn)
+```
+
+
+###Contrast
+```{r}
+library(MASS)
+contrasts(dat_Outputs_nonnative$Conditions) <- contr.sum(2)
+
+```
+
+
+
+```{r}
+
+k <- 7 # the number of categories in our outcome variable
+#I and J are matrices that we???ll use to set up constraints on the covariance structure of the residuals.see Course Notes P96
+I <- diag(k-1) #should make matrix of 0's with diagonal of 1's, dimensions k-1 rows and k-1 columns
+J <- matrix(rep(1, (k-1)^2), c(k-1, k-1)) # should make k-1 x k-1 matrix of 1's 
+
+prior.m0 <- list(
+  R = list (fix=1, V=(1/k) * (I+J), n=k-1), 
+  G=list(
+    G1=list(V = diag(6),    # G1, G2, G3 is the prior definition for subject random effects. 
+            n = 6),
+    G5=list(V = diag(6),
+            n = 6)))
+
+m0<- MCMCglmm(cbind(Voicing,Vocoid,C1_Del,C2_Del,C1_Change,C2_Change,Without_vocoid) ~  trait + trait:Conditions  -1 ,
+              # Vowel the final Outputs is the baseline Outputs, 
+               random = ~ us(trait) : Participants + 
+                          us(trait) : Item, # us() : subject for random effects
+               rcov   = ~ us(trait):units, 
+               data   = dat_Outputs_nonnative,
+               family = "multinomial7",
+               prior  = prior.m0,
+              # pl=TRUE,
+               slice = TRUE,
+               # singular.ok=TRUE,
+               thin   = 10,        # 3 parameters to set to control the sampling process: nitt, burnin and thin. thin=n means want to keep every n-th sample.
+               burnin = 5001,       # burn-in period after which we start collecting samples
+               nitt   = 50001)       # how many samples we want to produce overall 
+
+summary(m0)
+HPDinterval(m0$Sol, 0.95)
+
+par(mfrow=c(8,2), mar=c(2,2,1,0))
+plot(m0$Sol)
+
+par(mfrow=c(8,2), mar=c(2,2,1,0))
+autocorr.plot(m0$Sol)
+
+```
+```{r}
+dat_Outputs_nonnative_cc <- dat_Outputs_nonnative[dat_Outputs_nonnative$Conditions== "CC", ]
+dat_Outputs_nonnative_cc$Conditions <- factor(dat_Outputs_nonnative_cc$Conditions)
+
+k <- 7 # the number of categories in our outcome variable
+#I and J are matrices that we???ll use to set up constraints on the covariance structure of the residuals.see Course Notes P96
+I <- diag(k-1) #should make matrix of 0's with diagonal of 1's, dimensions k-1 rows and k-1 columns
+J <- matrix(rep(1, (k-1)^2), c(k-1, k-1)) # should make k-1 x k-1 matrix of 1's 
+
+
+prior.m_cc <- list(
+  R = list (fix=1, V=(1/k) * (I+J), n=k-1), 
+  G=list(
+    G1=list(V = diag(6),    # G1, G2, G3 is the prior definition for subject random effects. 
+            n = 6)))
+    #G2=list(V = diag(6),
+           # n = 6)))
+
+m_cc.0<- MCMCglmm(cbind(Voicing,C1_Del,C2_Del,C1_Change,C2_Change,Without_vocoid, Vocoid) ~  trait -1,
+              # Vowel the final Outputs is the baseline Outputs, 
+               random = ~ us(trait) : Participants,
+                          #us(trait) : Item, # us() : subject for random effects
+               rcov   = ~ us(trait):units, 
+               data   = dat_Outputs_nonnative_cc,
+               family = "multinomial7",
+               prior  = prior.m_cc,
+              
+              # pl=TRUE,
+               slice = TRUE,
+               # singular.ok=TRUE,
+               thin   = 10,        # 3 parameters to set to control the sampling process: nitt, burnin and thin. thin=n means want to keep every n-th sample.
+               burnin = 5001,       # burn-in period after which we start collecting samples
+               nitt   = 150001)       # how many samples we want to produce overall 
+
+summary(m_cc.0)
+HPDinterval(m_cc.0$Sol, 0.95)
+
+par(mfrow=c(8,2), mar=c(2,2,1,0))
+plot(m_cc.0$Sol)
+
+par(mfrow=c(8,2), mar=c(2,2,1,0))
+autocorr.plot(m_cc.0$Sol)
+
+```
+
+```{r}
+
+m=vglm(cbind(Voicing,C1_Del,C2_Del,C1_Change,C2_Change,Without_vocoid, Vocoid) ~   1, data=dat_Outputs_nonnative, family=multinomial)
+summary(m)
+
+```
+
+
+```{r}
+
+
+contrasts(dat_Outputs_nonnative_cc$Position) <- contr.sum(2)
+contrasts(dat_Outputs_nonnative_cc$Manners) <- contr.treatment(3)
+
+k <- 7 # the number of categories in our outcome variable
+#I and J are matrices that we???ll use to set up constraints on the covariance structure of the residuals.see Course Notes P96
+I <- diag(k-1) #should make matrix of 0's with diagonal of 1's, dimensions k-1 rows and k-1 columns
+J <- matrix(rep(1, (k-1)^2), c(k-1, k-1)) # should make k-1 x k-1 matrix of 1's 
+
+
+prior.m_cc <- list(
+  R = list (fix=1, V=(1/k) * (I+J), n=k-1), 
+  G=list(
+    G1=list(V = diag(6),    # G1, G2, G3 is the prior definition for subject random effects. 
+            n = 6)))
+    #G2=list(V = diag(6),
+           # n = 6)))
+
+m_cc<- MCMCglmm(cbind(Voicing,Vocoid,C1_Del,C2_Del,C1_Change,C2_Change,Without_vocoid) ~  trait + trait:Position + trait:Manners + trait:Position:Manners -1 + trait:Burst + trait:intensity,
+              # Vowel the final Outputs is the baseline Outputs, 
+               random = ~ us(trait) : Participants,
+                          #us(trait) : Item, # us() : subject for random effects
+               rcov   = ~ us(trait):units, 
+               data   = dat_Outputs_nonnative_cc,
+               family = "multinomial7",
+               prior  = prior.m_cc,
+              
+              # pl=TRUE,
+               slice = TRUE,
+               # singular.ok=TRUE,
+               thin   = 10,        # 3 parameters to set to control the sampling process: nitt, burnin and thin. thin=n means want to keep every n-th sample.
+               burnin = 5001,       # burn-in period after which we start collecting samples
+               nitt   = 150001)       # how many samples we want to produce overall 
+
+summary(m_cc)
+HPDinterval(m_cc$Sol, 0.95)
+
+par(mfrow=c(8,2), mar=c(2,2,1,0))
+plot(m_cc$Sol)
+
+par(mfrow=c(8,2), mar=c(2,2,1,0))
+autocorr.plot(m_cc$Sol)
+
+str(dat_Outputs_nonnative_cc)
+```
+
+
+***
+
+##Acoustic properties of the inserted vocoid
+###Criteria of the three categories: 
+* Vocoid: voice bar, clear formant structure (F1, F2, F3), higher intensity than the flanking sounds. 
+* Voicing: voice bar, no clear formant structure
+* No vocoid: no voice bar, no clear formant structure
+
+Duration of the inserted vocoid: 
+Duration (from the beginning of a voicing bar based on the waveform and spectrogram (end of release burst which include VOT for C1 voiceless stops) to offset of F2 energy and higher formants) (Davidson and Wilson 2016, Wilson et al. 2014)
+
+###Removed other modifications such as C1 change C2 change (56% of the data overall)
+###Druation of inserted vocoid/voicing in CC and vowels in CVC
+```{r, include=FALSE}
+data_v_duration<- subset(data,  Voicing != 1 & Without_vocoid != 1 & VowelDuration < 180)
+
+```
+
+```{r}
+data_v_duration_initial<- subset(data_v_duration,  Position == "initial")
+data_v_duration_medial<- subset(data_v_duration,  Position == "medial")
+
+V_initial<- ddply(data_v_duration_initial, c("Conditions"),summarize,
+              n=sum(!is.na(VowelDuration)),
+              m=mean(VowelDuration,na.rm = TRUE),
+              sd=sd(VowelDuration,na.rm = TRUE))
+V_initial
+
+V_medial<- ddply(data_v_duration_medial, c("Conditions"),summarize,
+              n=sum(!is.na(VowelDuration)),
+              m=mean(VowelDuration,na.rm = TRUE),
+              sd=sd(VowelDuration,na.rm = TRUE))
+V_medial
+
+Vduration_initial<- ggplot(data_v_duration_initial, aes(x=VowelDuration, color=Conditions, fill=Conditions)) + 
+ geom_histogram(aes(y=..density..), alpha=0.5, 
+                position="identity")+
+ geom_density(alpha=.1) +
+ scale_fill_grey(start=0.5, end=0) +
+ xlim(c(0, 180)) +
+ scale_color_grey(start=0.5, end=0) +
+ theme_classic()
+
+Vduration_initial
+
+Vduration_medial<- ggplot(data_v_duration_medial, aes(x=VowelDuration, color=Conditions, fill=Conditions)) + 
+ geom_histogram(aes(y=..density..), alpha=0.5, 
+                position="identity")+
+ geom_density(alpha=.1) +
+ xlim(c(0, 180)) +
+ scale_fill_grey(start=0.5, end=0) +
+ scale_color_grey(start=0.5, end=0) +
+ theme_classic()
+
+Vduration_medial
+```
+
+###Analysis of duration threshold of inserted vocoid
+
+```{r}
+
+Vduration.mean<-aggregate(data_v_duration$VowelDuration, list(Categories = data_v_duration$Categories, Conditions = data_v_duration$Conditions),mean)
+Vduration.median<-aggregate(data_v_duration$VowelDuration, list(Categories = data_v_duration$Categories, Conditions = data_v_duration$Conditions),median)
+Vduration.sd<-aggregate(data_v_duration$VowelDuration, list(Categories = data_v_duration$Categories, Conditions = data_v_duration$Conditions),sd)
+
+Vduration.mean
+Vduration.median
+Vduration.sd
+```
+
+###linear regression analysis of duration 
+```{r}
+Vduration.0 <- lmer(VowelDuration ~ Conditions*Position + (1|Participants) + (1|Clusters), control=lmerControl(optimizer="bobyqa"), REML=FALSE, na.action=na.omit, data=data_v_duration)
+
+Vduration.1 <- lmer(VowelDuration ~ Conditions+Position + (1|Participants) + (1|Clusters), control=lmerControl(optimizer="bobyqa"), REML=FALSE, na.action=na.omit, data=data_v_duration)
+
+anova(Vduration.0, Vduration.1)
+
+
+#diagnostic plots
+qqmath(Vduration.0,col=data_v_duration$Conditions,pch=data_v_duration$Position) # qq plot
+dotplot(ranef(Vduration.0,condVar=TRUE)) #Plot random effects to look for outliers
+
+```
+
+
+###Quality of inserted vocoids (F1 and F2)
+
+###F1 and F2 (mid-point) of the inserted vocoids in CC clusters and the vowels in CVC controls
+For normalization: I convert the hertz values onto Bark Scale. The conversion formula is given below: 
+26.81/(1+(1960/f1))-0.53
+
+*As a point of interest it doesn't make much sense to compute the area in hertz2, since a shift of 50Hz along the F2 axis is much less significant than a shift of 50Hz along the F1 axis (this is because our hearing is more selective of frequency at lower frequencies). A convenient alternative is to convert the hertz values onto some auditory scale, where equal steps along the scale are roughly equal steps of perceived difference. Once such scale is the Bark Scale. 
+
+```{r, include="FALSE"}
+data_vocoid <- subset(data, Voicing != 1 & Without_vocoid != 1& F1>200 & C1 != "l")
+
+#hertz to bark scale
+data_vocoid$F1_bark<-bark(data_vocoid$F1)
+data_vocoid$F2_bark<-bark(data_vocoid$F2)
+
+formants_female<- data_vocoid[data_vocoid$Sex == "F", ]
+formants_male<- data_vocoid[data_vocoid$Sex == "M", ]
+```
+
+```{r}
+data_vocoid_a <- subset(data_vocoid, VowelQuality == "a")
+F1_a <- ddply(data_vocoid_a, c("Conditions"), summarise,
+               N    = sum(!is.na(F1)),
+               mean = mean(F1, na.rm=TRUE),
+               sd   = sd(F1, na.rm=TRUE)
+)
+F1_a
+
+F2_a <- ddply(data_vocoid_a, c("Conditions"), summarise,
+               N    = sum(!is.na(F2)),
+               mean = mean(F2, na.rm=TRUE),
+               sd   = sd(F2, na.rm=TRUE)
+)
+F2_a
+
+data_vocoid_e <- subset(data_vocoid, VowelQuality == "e")
+F1_e <- ddply(data_vocoid_e, c("Conditions"), summarise,
+               N    = sum(!is.na(F1)),
+               mean = mean(F1, na.rm=TRUE),
+               sd   = sd(F1, na.rm=TRUE)
+)
+F1_e
+
+F2_e <- ddply(data_vocoid_e, c("Conditions"), summarise,
+               N    = sum(!is.na(F2)),
+               mean = mean(F2, na.rm=TRUE),
+               sd   = sd(F2, na.rm=TRUE)
+)
+F2_e
+
+F1_e_max <- data_vocoid_e %>% 
+             group_by(Conditions) %>%
+             filter(F1 == max(F1))
+F1_e_max
+F1_e_min <- data_vocoid_e %>% 
+             group_by(Conditions) %>%
+             filter(F1 == min(F1))
+F1_e_min
+
+F2_e_max <- data_vocoid_e %>% 
+             group_by(Conditions) %>%
+             filter(F2 == max(F2))
+F2_e_max
+F2_e_min <- data_vocoid_e %>% 
+             group_by(Conditions) %>%
+             filter(F2 == min(F2))
+F2_e_min
+
+prop.table(table(data_vocoid$VowelQuality,data_vocoid$Conditions), 2)
+```
+
+
+### Mean and SD of F1 and F2 for CC and CVC
+```{r}
+
+F1 <- ddply(data_vocoid, c("Sex", "Conditions","Clusters"), summarise,
+               N    = sum(!is.na(F1)),
+               mean = mean(F1, na.rm=TRUE),
+               sd   = sd(F1, na.rm=TRUE)
+)
+F1
+
+F2 <- ddply(data_vocoid, c("Sex", "Conditions","Clusters"), summarise,
+               N    = sum(!is.na(F2)),
+               mean = mean(F2, na.rm=TRUE),
+               sd   = sd(F2, na.rm=TRUE)
+)
+F2
+
+F1_bark <- ddply(data_vocoid, c("Sex", "Conditions","Clusters"), summarise,
+               N    = sum(!is.na(F1_bark)),
+               min  = min (!is.na(F1_bark)),
+               mean = mean(F1_bark, na.rm=TRUE),
+               sd   = sd(F1_bark, na.rm=TRUE)
+)
+F1_bark
+
+F2_bark <- ddply(data_vocoid, c("Sex", "Conditions","Clusters"), summarise,
+               N    = sum(!is.na(F2_bark)),
+               mean = mean(F2_bark, na.rm=TRUE),
+               sd   = sd(F2_bark, na.rm=TRUE)
+)
+F2_bark
+
+```
+
+#C1
+```{r}
+par(mfrow = c(1, 2))
+
+formants_female %>%
+arrange(desc(formants_female$Conditions)) %>%
+with(plotVowels(F1_bark, F2_bark, VowelQuality, group = Conditions, cex.tokens = 0.5, 
+    alpha.tokens = 0.3, plot.means = TRUE, pch.means = VowelQuality, cex.means = 1.3, var.col.by = Conditions, 
+    var.sty.by = Conditions, hull.fill = TRUE, hull.line = TRUE, fill.opacity = 0.2, 
+    pretty = TRUE, xlim = c(14, 
+    7), ylim = c(10, 1), xlab="F2 (Bark)", ylab="F1 (Bark)", main = "Females"))
+with(formants_male, plotVowels(F1_bark, F2_bark, VowelQuality, group = Conditions, cex.tokens = 0.5, 
+    alpha.tokens = 0.3, plot.means = TRUE, pch.means = VowelQuality, cex.means = 1.3, var.col.by = Conditions, 
+    var.sty.by = Conditions, hull.fill = TRUE, hull.line = TRUE, fill.opacity = 0.2, 
+    pretty = TRUE, main = "Males",  xlim = c(14,7), ylim = c(10, 1), xlab="F2 (Bark)", ylab="F1 (Bark)",legend.kwd = "bottomright"))
+```
+
+#C1
+```{r}
+par(mfrow = c(1, 2))
+
+formants_female %>%
+arrange(desc(formants_female$Conditions)) %>%
+with(plotVowels(F1, F2, VowelQuality, group = Conditions, cex.tokens = 0.5, 
+    alpha.tokens = 0.3, plot.means = TRUE, pch.means = VowelQuality, cex.means = 1.3, var.col.by = Conditions, 
+    var.sty.by = Conditions, hull.fill = TRUE, hull.line = TRUE, fill.opacity = 0.2, 
+    pretty = TRUE, xlim = c(2500, 500), ylim = c(1500, 200), xlab="F2 (Hz)", ylab="F1 (Hz)", main = "Females"))
+with(formants_male, plotVowels(F1, F2, VowelQuality, group = Conditions, cex.tokens = 0.5, 
+    alpha.tokens = 0.3, plot.means = TRUE, pch.means = VowelQuality, cex.means = 1.3, var.col.by = Conditions, 
+    var.sty.by = Conditions, hull.fill = TRUE, hull.line = TRUE, fill.opacity = 0.2, 
+    pretty = TRUE, main = "Males",  xlim = c(2500,500), ylim = c(1500, 200), xlab="F2 (Hz)", ylab="F1 (Hz)",legend.kwd = "bottomright"))
+```
+
+
+###The quality of inserted vocoids in CC and the lexcial vowels in CVC, surrounding consonants, and Sex 
+bivariate regression analysis with mixed effect
+```{r}
+
+contrasts(data_vocoid$Nativeness) <- contr.sum(2)
+contrasts(data_vocoid$Sex) <- contr.sum(2)
+contrasts(data_vocoid$C1) <- contr.treatment(4)
+
+data_vocoid$C1 <- relevel(data_vocoid$C1, ref = "p")
+
+prior.formants<-list(G=list(G1=list(V=diag(3)/3,n=2),
+                      G2=list(V=diag(3)/3,n=2)),
+               R=list(V=diag(2)/3,n=2))
+
+modelFormants<-MCMCglmm(cbind(F1_bark,F2_bark)~ Conditions + Sex + C1:Conditions,
+            random=~us(trait+Conditions):Participants+us(trait+Conditions):Clusters,
+            rcov=~us(trait):units,
+            family=c("gaussian","gaussian"),
+            data=data_vocoid,
+            nitt=100000,thin=50,burnin=10000,
+            prior=prior.formants,verbose=FALSE)
+
+summary(modelFormants)
+summary(modelFormants$Sol)
+plot(modelFormants$Sol)
+plot(modelFormants$VCV)
+
+
+#Report
+HPDinterval(modelFormants$Sol,0.95)
+
+par(mfrow=c(8,2), mar=c(2,2,1,0))
+plot(modelFormants$Sol)
+
+par(mfrow=c(8,2), mar=c(2,2,1,0))
+autocorr.plot(modelFormants$Sol)
+
+
+
+modelFormants_seperately<-MCMCglmm(cbind(F1_bark,F2_bark)~ trait -1 + trait:Conditions + trait:Sex + C1:Conditions,
+            random=~us(trait+Conditions):Participants+us(trait+Conditions):Clusters,
+            rcov=~us(trait):units,
+            family=c("gaussian","gaussian"),
+            data=data_vocoid,
+            nitt=100000,thin=50,burnin=10000,
+            prior=prior.formants,verbose=FALSE)
+
+summary(modelFormants_seperately)
+summary(modelFormants_seperately$Sol)
+plot(modelFormants_seperately$Sol)
+plot(modelFormants_seperately$VCV)
+
+
+#Report
+HPDinterval(modelFormants_seperately$Sol,0.95)
+
+par(mfrow=c(8,2), mar=c(2,2,1,0))
+plot(modelFormants_seperately$Sol)
+
+par(mfrow=c(8,2), mar=c(2,2,1,0))
+autocorr.plot(modelFormants_seperately$Sol)
+
+```
+
+
+###Is the vocoid an epenthesis or a transition?
+
+The following analysis is to investigate the acoustic timing in the production of non-Nativeness C1C2 with the presence vs. absence of vocoid between C1C2. (ONLY FOR WORD-MEDIAL POSITION) 
+
+```{r}
+data_nk$Outputs<-ifelse(data_nk$Conditions=="CC"& data_nk$Categories=="vocoid", "Vocoid",
+                      ifelse(data_nk$Conditions=="CC" & data_nk$Categories=="No_vocoid","Without_vocoid",
+                        ifelse(data_nk$Conditions =="CC" & data_nk$Categories=="voicing","Voicing",
+                             ifelse(data_nk$Conditions=="CVC" & data_nk$Categories=="vocoid","Lexical_vowel",NA))))
+
+data_CCDuration<-subset(data_nk, Outputs != "NA" & Position !="initial")
+
+data_CCDuration_noL<-subset(data_CCDuration, Manners !="LS" & Manners !="SL"& Manners !="NS")
+data_CCDuration_noL$Manners<-as.factor(data_CCDuration_noL$Manners)
+
+```
+
+
+```{r}
+
+CCDuration<-ggplot(data_CCDuration_noL, aes(x=Clusters, y=CCDuration, fill=Outputs)) +
+  geom_boxplot() + 
+  scale_x_discrete(limits=c("kn","kt", "tk", "pt","tp"))+
+  labs(x="", y = "CC duration (ms)") +
+  #ylim(100,300)+
+  scale_fill_manual(name="",
+                         breaks=c("Lexical_vowel","Vocoid", "Voicing","Without_vocoid"),
+                         labels=c("Vowel","Vocoid", "Voicing","Without Vocoid"),
+                         values = c("grey25", "coral4","coral2","rosybrown")) +
+   theme(axis.text.x = element_text(size=12)) 
+CCDuration
+
+```
+
+
+```{r}
+# Model categories and two conditions for C1C2 timing 
+
+# 
+CCDuration.0<- lmer(CCDuration ~ Outputs * Clusters  + (1 + Outputs|Participants) + (1 |Token),REML = FALSE, na.action=na.omit,data=data_CCDuration_noL)
+CCDuration.1<- lmer(CCDuration ~ Outputs + Clusters   + (1 + Outputs|Participants) + (1 |Token),REML = FALSE, na.action=na.omit, data=data_CCDuration_noL)
+CCDuration.2<- lmer(CCDuration ~ Outputs + (1 + Outputs|Participants) + (1 |Token) , REML = FALSE, na.action=na.omit, data=data_CCDuration_noL)
+CCDuration.3<- lmer(CCDuration ~ 1 + (1 + Outputs|Participants) + (1 |Token) , REML = FALSE, na.action=na.omit, data=data_CCDuration_noL)
+
+anova(CCDuration.0, CCDuration.1)
+anova(CCDuration.1, CCDuration.2)
+anova(CCDuration.2, CCDuration.3)
+
+
+#diagnostic 
+qqnorm(resid(CCDuration.0))
+qqline(resid(CCDuration.0))
+
+## Check VIFs:
+##how to detect and deal with multicollinearity in regression models. Multicollinearity problems consist of including, in the model, different variables that have a similar predictive relationship with the outcome. This can be assessed for each predictor by computing the VIF value.Any variable with a high VIF value (above 5 or 10) should be removed from the model. This leads to a simpler model without compromising the model accuracy, which is good.
+library(car)
+vif(CCDuration.0)
+
+#contrast comparaison
+
+m.lsmeans<-lsmeans(CCDuration.0, pairwise~ Outputs |Clusters, adjust="tukey")
+m.lsmeans
+
+
+```
+
+
+***
+#Timing in CC 
+### Correlation between IBI vs. inserted vocoid duration, IPI vs. inserted vocoid duration. 
+
+###plot IBI, IPI in different clusters
+
+```{r}
+data_ss$ClusterType <- paste(data_ss$Clusters,data_ss$Position)
+data_ss$ClusterType <- as.factor(data_ss$ClusterType)
+
+data_ss$Outputs<-ifelse(data_ss$Conditions=="CC"& data_ss$Categories=="vocoid", "Vocoid",
+                      ifelse(data_ss$Conditions=="CC" & data_ss$Categories=="No_vocoid","Without_vocoid",
+                        ifelse(data_ss$Conditions =="CC" & data_ss$Categories=="voicing","Voicing",
+                             ifelse(data_ss$Conditions=="CVC" & data_ss$Categories=="vocoid","Vowel",NA))))
+
+data_ss$Outputs<-as.factor(data_ss$Outputs)
+data_ss_IBIDuration<-subset(data_ss, IBIDuration <250 & Outputs != "NA" & Clusters!= "NA")
+data_ss_IBIDuration$Clusters <- factor(data_ss_IBIDuration$Clusters, levels=c("kt", "tk", "pt","tp"))
+data_ss_IBIDuration$Outputs <- factor(data_ss_IBIDuration$Outputs, levels=c("Vowel", "Vocoid", "Voicing","Without_vocoid"))
+
+IBIDuration<-ggplot(data_ss_IBIDuration, aes(x=Clusters, y=IBIDuration, fill=Outputs)) +
+  geom_boxplot() + 
+  labs(x="", y = "IBI (ms)") +
+  ylim(0,250)+
+  scale_fill_manual(name="",
+                         breaks=c("Vowel","Vocoid", "Voicing","Without_vocoid"),
+                         labels=c("Vowel","Vocoid", "Voicing","Without Vocoid"),
+                         values = c("grey25","coral4","coral2","rosybrown")) +
+   theme(axis.text.x = element_text(size=12)) + 
+   facet_grid (.~Position,scales="free",space ="free") + 
+   theme(strip.text.x = element_text(size = 12))
+IBIDuration
+
+
+
+```
+
+
+```{r}
+data_ss_IPIDuration<-subset(data_ss, IPIDuration < 250 & Outputs != "NA" & Clusters!= "NA")
+data_ss_IPIDuration$Clusters <- factor(data_ss_IPIDuration$Clusters, levels=c("kt", "tk", "pt","tp"))
+data_ss_IPIDuration$Outputs <- factor(data_ss_IPIDuration$Outputs, levels=c("Vowel", "Vocoid", "Voicing","Without_vocoid"))
+
+IPIDuration<-ggplot(data_ss_IPIDuration, aes(x=Clusters, y=IPIDuration, fill=Outputs)) +
+  geom_boxplot() + 
+  labs(x="", y = "IPI (ms)") +
+  ylim(0,250)+
+  scale_fill_manual(name="",
+                         breaks=c("Vowel","Vocoid", "Voicing","Without_vocoid"),
+                         labels=c("Vowel","Vocoid", "Voicing","Without Vocoid"),
+                         values = c("grey25", "coral4","coral2","rosybrown")) +
+   theme(axis.text.x = element_text(size=12)) + 
+   facet_grid (.~Position,scales="free",space ="free")
+
+IPIDuration
+
+IPI_descriptive <- ddply(data_ss_IPIDuration, c("Outputs","Position"), summarise,
+               N    = sum(!is.na(IPIDuration)),
+               mean = mean(IPIDuration, na.rm=TRUE),
+               sd   = sd(IPIDuration, na.rm=TRUE)
+)
+IPI_descriptive
+```
+
+###LMM for IBI
+```{r}
+contrasts(data_ss_IBIDuration$Outputs) <- contr.treatment(4)
+data_ss_IBIDuration$Outputs<-as.factor(data_ss_IBIDuration$Outputs)
+data_ss_IBIDuration$Outputs <- relevel(data_ss_IBIDuration$Outputs, ref = "Vowel")
+
+
+IBI.0<- lmer(IBIDuration ~ Outputs * Clusters * Position + IBI_stimuli  + (1+Outputs |Participants) + (1| Token), REML = FALSE, na.action=na.omit, data=data_ss_IBIDuration)
+
+IBI.1<- lmer(IBIDuration ~ Outputs + Clusters + Position + Outputs : Clusters + Outputs : Position + Clusters:Position  + IBI_stimuli + (1+ Outputs |Participants) + (1| Token), REML = FALSE, na.action=na.omit, data=data_ss_IBIDuration)
+
+IBI.2<- lmer(IBIDuration ~ Outputs + Clusters + Position + Outputs : Clusters + Outputs : Position + IBI_stimuli +  (1+ Outputs |Participants) + (1 | Token), REML = FALSE,na.action=na.omit, data=data_ss_IBIDuration)
+
+IBI.3<- lmer(IBIDuration ~ Outputs + Clusters + Position + Outputs : Position  + IBI_stimuli +  (1+ Outputs |Participants) + (1 | Token), REML = FALSE, na.action=na.omit, data=data_ss_IBIDuration) 
+
+IBI.4<- lmer(IBIDuration ~ Outputs + Clusters + Position +  IBI_stimuli + (1+ Outputs |Participants) + (1| Token), REML = FALSE,na.action=na.omit, data=data_ss_IBIDuration)
+
+IBI.5<- lmer(IBIDuration ~ Outputs + Clusters + Position +   (1+Outputs|Participants) + (1| Token), REML = FALSE,na.action=na.omit, data=data_ss_IBIDuration)
+
+IBI.6<- lmer(IBIDuration ~ Outputs +  Position +   (1+Outputs|Participants) + (1| Token), REML = FALSE,na.action=na.omit, data=data_ss_IBIDuration) 
+
+IBI.7<- lmer(IBIDuration ~ Outputs +  (1+Outputs|Participants) + (1| Token), REML = FALSE,na.action=na.omit, data=data_ss_IBIDuration)
+
+IBI.8<- lmer(IBIDuration ~ 1 +  (1+ Outputs|Participants) + (1| Token), REML = FALSE,na.action=na.omit, data=data_ss_IBIDuration)
+
+anova(IBI.0, IBI.1)
+anova(IBI.1, IBI.2)
+anova(IBI.2, IBI.3)
+anova(IBI.3, IBI.4)
+anova(IBI.4, IBI.5)
+anova(IBI.5, IBI.6)
+anova(IBI.6, IBI.7)
+anova(IBI.7, IBI.8)
+
+```
+
+
+```{r}
+
+summary(IBI.3)
+anova(IBI.3)
+
+qqnorm(resid(IBI.3))
+qqline(resid(IBI.3))
+#vif(m_IBI)
+lsmeans(IBI.3, pairwise~ Clusters|Outputs|Position , adjust = "tukey")
+```
+
+###IPI
+
+```{r}
+
+contrasts(data_ss_IPIDuration$Outputs) <- contr.treatment(4)
+data_ss_IPIDuration$Outputs<-as.factor(data_ss_IPIDuration$Outputs)
+data_ss_IPIDuration$Outputs <- relevel(data_ss_IPIDuration$Outputs, ref = "Vocoid")
+
+IPI.0<- lmer(IPIDuration ~ Outputs * Clusters * Position + IPI_stimuli  + (1 |Participants) + (1 | Token), REML = FALSE, na.action=na.omit, data=data_ss_IPIDuration)
+
+IPI.1<- lmer(IPIDuration ~ Outputs + Clusters + Position + Outputs*Position + IPI_stimuli + (1 |Participants) , REML = FALSE, na.action=na.omit, data=data_ss_IPIDuration)
+
+IPI.2<- lmer(IPIDuration ~ Outputs + IPI_stimuli  + (1  |Participants) + (1 | Token), REML = FALSE,na.action=na.omit, data=data_ss_IPIDuration)
+
+IPI.3<- lmer(IPIDuration ~ Outputs + (1  |Participants) + (1| Token), REML = FALSE, na.action=na.omit, data=data_ss_IPIDuration)
+
+IPI.4<- lmer(IPIDuration ~ 1 + (1  |Participants) + (1 | Token), REML = FALSE,na.action=na.omit, data=data_ss_IPIDuration)
+
+
+anova(IPI.0, IPI.1)
+anova(IPI.1, IPI.2)
+anova(IPI.2, IPI.3)
+anova(IPI.3, IPI.4)
+
+xtable(anova(IPI.0, IPI.1))
+xtable(anova(IPI.1, IPI.2))
+xtable(anova(IPI.2, IPI.3))
+xtable(anova(IPI.3, IPI.4))
+
+summary(IPI.1)
+anova(IPI.1)
+
+qqnorm(resid(IPI.0))
+qqline(resid(IPI.0))
+#vif(m_IPI)
+lsmeans(IPI.1, pairwise~  Outputs|Position|Clusters , adjust = "tukey")
+```
+***
+##Articulatory timing pattern in the production of non-native CC
+
+###Z-score within position and cluster type
+```{r}
+
+#z-score IBI
+data_ss$IBIZ.item<-ave(data_ss$IBIDuration, data_ss$Position,  FUN=scale)
+
+#z-score IPI (transition)
+data_ss$IPIZ.item<-ave(data_ss$IPIDuration, data_ss$Position,  FUN=scale)
+
+#z-score inserted vocoid duration
+data_ss$VZ.item<- ave(data_ss$VowelDuration, data_ss$Position, FUN=scale)
+
+#z-score C1 release duration
+data_ss$RelZ.item<- ave(data_ss$RelDuration, data_ss$Position, FUN=scale)
+
+```
+
+###Check whether the data are normal, if yes, do Pearson correlation; if not, do Spearman correlation
+Shapiro-Wilkes method is widely recommended for normality test. It is based on the correlation between the data and the corresponding normal scores. From the output, the p-value > 0.05 implying that the distribution of the data are not significantly different from normal distribution. In other words, we can assume the normality.
+ 
+```{r}
+data_ss_corr.Vowel<-subset(data_ss, Outputs == "Vowel" )
+data_ss_corr.Vocoid<-subset(data_ss, Outputs == "Vocoid" )
+data_ss_corr.Voicing<-subset(data_ss, Outputs == "Voicing")
+data_ss_corr.withoutV<-subset(data_ss, Outputs == "Without_vocoid")
+
+
+
+#IPI_vowel, IPI_vocoid, IBI_vowel, IBI_vocoid, Vowel, and Vocoid
+shapiro.test(data_ss_corr.Vocoid$IPIZ.item) #normal
+shapiro.test(data_ss_corr.Vowel$IPIZ.item) #normal
+shapiro.test(data_ss_corr.Vocoid$VZ.item) #non-normal
+shapiro.test(data_ss_corr.Vowel$VZ.item) #normal
+shapiro.test(data_ss_corr.Vocoid$IBIZ.item) #normal
+shapiro.test(data_ss_corr.Vowel$IBIZ.item) #normal
+shapiro.test(data_ss_corr.Vocoid$RelZ.item) #normal
+shapiro.test(data_ss_corr.Vowel$RelZ.item) #non-normal
+
+
+length(na.omit(data_ss_corr.Vocoid$IPIZ.item))
+length(na.omit(data_ss_corr.Vowel$IPIZ.item))
+length(na.omit(data_ss_corr.Vocoid$VZ.item))
+length(na.omit(data_ss_corr.Vowel$VZ.item))
+length(na.omit(data_ss_corr.Vocoid$IBIZ.item))
+length(na.omit(data_ss_corr.Vowel$IBIZ.item))
+length(na.omit(data_ss_corr.Vocoid$RelZ.item))
+length(na.omit(data_ss_corr.Vowel$RelZ.item))
+
+hist(data_ss_corr.Vocoid$IPIZ.item)
+hist(data_ss_corr.Vowel$IPIZ.item)
+hist(data_ss_corr.Vocoid$VZ.item)
+hist(data_ss_corr.Vowel$VZ.item)
+hist(data_ss_corr.Vocoid$IBIZ.item)
+hist(data_ss_corr.Vowel$IBIZ.item)
+hist(data_ss_corr.Vocoid$RelZ.item)
+hist(data_ss_corr.Vowel$RelZ.item)
+
+
+qplot(sample = VZ.item, data = data_ss_corr.Vocoid)
+qplot(sample = VZ.item, data = data_ss_corr.Vowel)
+
+
+# IPI_voicing, IPI_withoutV, IBI_voicing, IBI_withoutV
+
+shapiro.test(data_ss_corr.Voicing$IPIZ.item) #normal
+shapiro.test(data_ss_corr.withoutV$IPIZ.item) #normal
+shapiro.test(data_ss_corr.Voicing$IBIZ.item)  #normal ??
+shapiro.test(data_ss_corr.withoutV$IBIZ.item) #non-normal ??
+
+length(na.omit(data_ss_corr.Voicing$IPIZ.item))
+length(na.omit(data_ss_corr.withoutV$IPIZ.item))
+length(na.omit(data_ss_corr.Voicing$IBIZ.item))
+length(na.omit(data_ss_corr.withoutV$IBIZ.item))
+
+hist(data_ss_corr.Voicing$IPIZ.item)
+hist(data_ss_corr.withoutV$IPIZ.item)
+hist(data_ss_corr.Voicing$IBIZ.item)
+hist(data_ss_corr.withoutV$IBIZ.item)
+
+#mean and sd. 
+VZ.vocoid <- ddply(data_ss_corr.Vocoid,"Conditions",summarize,
+                n=sum(!is.na(VZ.item)),
+                m=mean(VZ.item,na.rm = TRUE),
+                sd=sd(VZ.item,na.rm = TRUE)
+)
+VZ.vocoid
+
+VZ.vowel <- ddply(data_ss_corr.Vowel, "Conditions", summarize,
+                n=sum(!is.na(VZ.item)),
+                m=mean(VZ.item,na.rm = TRUE),
+                sd=sd(VZ.item,na.rm = TRUE)
+)
+VZ.vowel
+```
+
+```{r}
+data_ss$Outputs <- factor(data_ss$Output, levels=c("Vowel", "Vocoid"))
+data_ss_corr_IBI<-subset(data_ss, Voicing =="0"& Without_vocoid == "0" & Outputs !="NA" & IBIZ.item < 3)
+
+
+cor.V.IBI<-ggscatter(data_ss_corr_IBI, x = "VZ.item", y = "IBIZ.item",
+          add = "reg.line", conf.int = TRUE,
+          color = "Outputs", palette = c("black","#999999"),
+          shape = "Outputs",
+          cor.method = "spearman",
+          xlab = "vocoid/vowel duration(z-score)", ylab = "IBI (z-score)") 
+          
+cor.V.IBI
+
+
+cor.test(data_ss_corr.Vowel$IBIZ.item, data_ss_corr.Vowel$VZ.item,use = "complete.obs", method="spearman") 
+cor.test(data_ss_corr.Vocoid$IBIZ.item, data_ss_corr.Vocoid$VZ.item, use = "complete.obs",method="spearman") 
+
+```
+
+
+```{r}
+data_ss_corr_IPI<-subset(data_ss, Voicing =="0"& Without_vocoid == "0" & Outputs !="NA" & IPIZ.item < 2.8)
+
+cor.V.IPI<-ggscatter(data_ss_corr_IPI, x = "VZ.item", y = "IPIZ.item",
+          add = "reg.line", conf.int = TRUE,
+          color = "Outputs", palette = c("black","#999999"),
+          shape = "Outputs",
+          cor.method = "spearman",
+          xlab = "vocoid/vowel duration(z-score)", ylab = "IPI (z-score)")
+          
+cor.V.IPI
+
+cor.test(data_ss_corr.Vowel$IPIZ.item, data_ss_corr.Vowel$VZ.item, method="spearman") 
+cor.test(data_ss_corr.Vocoid$IPIZ.item, data_ss_corr.Vocoid$VZ.item, method="spearman") 
+```
+```{r}
+data_ss_IPI_IBI<-subset(data_ss, Voicing =="0"& Without_vocoid == "0" & Outputs !="NA" & IPIZ.item < 3)
+cor.IPI.IBI<-ggscatter(data_ss_IPI_IBI, x = "IBIZ.item", y = "IPIZ.item",
+          add = "reg.line", conf.int = TRUE,
+          color = "Outputs", palette = c("black","#999999"),
+          shape = "Outputs",
+          cor.method = "spearman",
+          xlab = "IBI (z-score)", ylab = "IPI (z-score)")
+cor.IPI.IBI
+
+ 
+cor.test(data_ss_corr.Vowel$IPIZ.item, data_ss_corr.Vowel$IBIZ.item, method="spearman")
+cor.test(data_ss_corr.Vocoid$IPIZ.item, data_ss_corr.Vocoid$IBIZ.item, method="spearman")
+```
+
+
+```{r}
+
+data_ss_corr_Rel<-subset(data_ss, Voicing =="0"& Without_vocoid == "0" & Outputs !="NA")
+data_ss_corr_Rel$Outputs <- factor(data_ss_corr_Rel$Output, levels=c("Vocoid","Vowel"))
+Relduration<- ggplot(data_ss_corr_Rel, aes(x=RelDuration, color=Outputs, fill=Outputs)) + 
+ geom_histogram(aes(y=..density..), alpha=0.5, 
+                position="identity")+
+ geom_density(alpha=.1) +
+ scale_fill_grey(start=0.5, end=0) +
+ scale_color_grey(start=0.5, end=0) +
+ theme_classic() + 
+ xlab("C1 release duration (ms)")
+
+Relduration
+
+
+
+RelZ.vocoid <- ddply(data_ss_corr.Vocoid,"Conditions",summarize,
+                n=sum(!is.na(RelZ.item)),
+                m=mean(RelDuration,na.rm = TRUE),
+                sd=sd(RelDuration,na.rm = TRUE)
+)
+RelZ.vocoid
+
+
+RelZ.vowel <- ddply(data_ss_corr.Vowel, "Conditions", summarize,
+                n=sum(!is.na(RelZ.item)),
+                m=mean(RelDuration,na.rm = TRUE),
+                sd=sd(RelDuration,na.rm = TRUE)
+)
+RelZ.vowel
+
+
+```
+
+
+```{r}
+data_ss_IPI_IBI.voicing<-subset(data_ss, Outputs == c("Vowel","Voicing"))
+cor.IPI.IBI.voicing<-ggscatter(data_ss_IPI_IBI.voicing, x = "IBIZ.item", y = "IPIZ.item",
+          add = "reg.line", conf.int = TRUE,
+          color = "Outputs", palette = c("#999999","black"),
+          shape = "Outputs",
+          cor.method = "spearman",
+          xlab = "IBI (z-score)", ylab = "IPI (z-score)")
+cor.IPI.IBI.voicing
+
+cor.test(data_ss_corr.Voicing$IPIZ.item, data_ss_corr.Voicing$IBIZ.item, method="spearman") 
+
+```
+
+```{r}
+data_ss_IPI_IBI.withoutV<-subset(data_ss, Outputs == c("Without_vocoid","Vowel"))
+cor.IPI.IBI.withoutV<-ggscatter(data_ss_IPI_IBI.withoutV, x = "IBIZ.item", y = "IPIZ.item",
+          add = "reg.line", conf.int = TRUE,
+          color = "Outputs", palette = c("black","#999999"),
+          shape = "Outputs",
+          cor.method = "spearman",
+          xlab = "IBI (z-score)", ylab = "IPI (z-score)")
+cor.IPI.IBI.withoutV
+
+cor.test(data_ss_corr.withoutV$IPIZ.item, data_ss_corr.withoutV$IBIZ.item, method="spearman") 
+```
+
+
+```{r}
+#The following function ( compcorr) can be used in the R environment to test for difference in correlation strengths (independent samples and non-overlap data): (Hallé and Best 2007)  it is used to test the significance of the difference between two correlation coefficients, r1 and r2 from independent samples. If r1 is larger than r2, the z-value will be positive; If r1 is smaller than r2, the z-value will be negative.
+compcorr <- function(n1, r1, n2, r2) {
+# compares two correlation coefficients; returns difference and p-value # Fisher Z-transform
+zf1 <- 0.5*log((1 + r1)/(1 - r1)) 
+zf2 <- 0.5*log ((1 + r2)/(1 - r2))
+# difference and p-value returned as list (diff, pval) 
+dz <- (zf1 - zf2)/sqrt(1/(n1 - 3) + (1/(n2 - 3))) 
+pv <- 2*(1 - pnorm(abs(dz))) 
+return (list(diff=dz, pval=pv))
+}
+
+##IBI.V
+
+n1.IBI<-length(na.omit(data_ss_corr.Vowel$VZ.item))
+n2.IBI<-length(na.omit(data_ss_corr.Vocoid$VZ.item))
+
+compcor.V.IBI <- compcorr(n1.IBI, 0.4835844 , n2.IBI, 0.4620643)  
+compcor.V.IBI
+
+##IPI.V
+
+n1.IPI<-length(na.omit(data_ss_corr.Vowel$VZ.item))
+n2.IPI<-length(na.omit(data_ss_corr.Vocoid$VZ.item))
+
+compcor.V.IPI <- compcorr(n1.IPI,0.858981, n2.IPI, 0.7109364) 
+compcor.V.IPI
+
+##IPI.C1rel
+
+n1.Rel<-length(na.omit(data_ss_corr.Vowel$RelZ.item))
+n2.Rel<-length(na.omit(data_ss_corr.Vocoid$RelZ.item))
+
+compcor.V.Rel <- compcorr(n1.Rel, 0.4040435, n2.Rel, 0.4599453) 
+compcor.V.Rel
+
+##IPI.IBI
+
+n1.IPI.IBI<-length(na.omit(data_ss_corr.Vowel$Outputs))
+n2.IPI.IBI<-length(na.omit(data_ss_corr.Vocoid$Outputs))
+n3.IPI.IBI<-length(na.omit(data_ss_corr.Voicing$Outputs))
+n4.IPI.IBI<-length(na.omit(data_ss_corr.withoutV$Outputs))
+
+compcor.IBI.IPI.1 <- compcorr(n1.IPI.IBI, 0.5980164, n2.IPI.IBI, 0.7209159) # Vowel and vocoid 
+compcor.IBI.IPI.1
+
+compcor.IBI.IPI.2 <- compcorr(n1.IPI.IBI, 0.4316623, n3.IPI.IBI, 0.08923077) # Vowel and voicing 
+compcor.IBI.IPI.2
+
+compcor.IBI.IPI.3 <- compcorr(n1.IPI.IBI, 0.4316623, n4.IPI.IBI, 0.1937046) # Vowel and without vocoid 
+compcor.IBI.IPI.3
+
+```
+
+
+
+
+
+***
+### Wheter insertion of a vocoid will change the duration of C1C2, IBI, and IPI? 
+
+```{r}
+debug_contr_error <- function (dat, subset_vec = NULL) {
+  if (!is.null(subset_vec)) {
+    ## step 0
+    if (mode(subset_vec) == "logical") {
+      if (length(subset_vec) != nrow(dat)) {
+        stop("'logical' `subset_vec` provided but length does not match `nrow(dat)`")
+        }
+      subset_log_vec <- subset_vec
+      } else if (mode(subset_vec) == "numeric") {
+      ## check range
+      ran <- range(subset_vec)
+      if (ran[1] < 1 || ran[2] > nrow(dat)) {
+        stop("'numeric' `subset_vec` provided but values are out of bound")
+        } else {
+        subset_log_vec <- logical(nrow(dat))
+        subset_log_vec[as.integer(subset_vec)] <- TRUE
+        } 
+      } else {
+      stop("`subset_vec` must be either 'logical' or 'numeric'")
+      }
+    dat <- base::subset(dat, subset = subset_log_vec)
+    } else {
+    ## step 1
+    dat <- stats::na.omit(dat)
+    }
+  if (nrow(dat) == 0L) warning("no complete cases")
+  ## step 2
+  var_mode <- sapply(dat, mode)
+  if (any(var_mode %in% c("complex", "raw"))) stop("complex or raw not allowed!")
+  var_class <- sapply(dat, class)
+  if (any(var_mode[var_class == "AsIs"] %in% c("logical", "character"))) {
+    stop("matrix variables with 'AsIs' class must be 'numeric'")
+    }
+  ind1 <- which(var_mode %in% c("logical", "character"))
+  dat[ind1] <- lapply(dat[ind1], as.factor)
+  ## step 3
+  fctr <- which(sapply(dat, is.factor))
+  if (length(fctr) == 0L) warning("no factor variables to summary")
+  ind2 <- if (length(ind1) > 0L) fctr[-ind1] else fctr
+  dat[ind2] <- lapply(dat[ind2], base::droplevels.factor)
+  ## step 4
+  lev <- lapply(dat[fctr], base::levels.default)
+  nl <- lengths(lev)
+  ## return
+  list(nlevels = nl, levels = lev)
+  }
+debug_contr_error(data_ss)
+```
+
+
+****
+
+##Compare with identification (whether participants heard a vowel between two consonants or not)
+
+```{r}
+data_identification<-read.table("ex3_identification_mono.txt", header=T)
+data_CVC<-read.table("Outputs_voicing.txt", header=T)
+data_CVC<-merge(data_identification, data_CVC, by="production")
+
+data_CVC_pro_per<-merge(data_identification, data_CVC, by=c("Participants","Conditions","Clusters"))
+summary(data_CVc_pro_per)
+
+```
+```{r}
+pro_per <- table(data_CVc_pro_per$Categories, data_CVc_pro_per$Response)
+
+frequency_pro_per<-prop.table(pro_per,1)
+frequency_pro_per
+
+```
+
+
+
+

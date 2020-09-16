@@ -1,0 +1,1464 @@
+---
+title: "Transcription data"
+output: html_notebook
+---
+
+##The goal of this project is to investigate the Word Position effect and Manner (sonority) effect on the perception of non-native consonant clusters. 
+
+H1: Assuming that C1C2 sequences produced by a Russian speaker exhibit longer lag between C1 and C2 in word-initial Positions than in word-medial Positions and word-initial Positions are important in lexcial access, Mandarin listeners will perceive consonants clusters in word-initial Positions with less modifications than those in word-initial Positions. 
+
+H2: The effects of sonority preference will be different in word-initial Positions and in word-medial Positions. 
+H2-1: In word-initial sequences, Mandarin listeners will perceive less epenthetic vowels between C1 and C2 when C1 is less sonorous than C2, replicating on Berent et al.??? (2006) findings. 
+
+In this experiment, we have data from 23 quasi-monolingual Mandarin listeners. 
+ 
+
+```{r, include=FALSE}
+rm(list=ls())
+
+Russian_stimuli<-read.table("Trans_repetition_stimuli_russian.txt", header=T)
+names(Russian_stimuli)[names(Russian_stimuli) == "intensity"] <- "intensity_stimuli"
+names(Russian_stimuli)[names(Russian_stimuli) == "Burst"] <- "burst_stimuli"
+names(Russian_stimuli)[names(Russian_stimuli) == "CC"] <- "CC_stimuli"
+names(Russian_stimuli)[names(Russian_stimuli) == "IBI"] <- "IBI_stimuli"
+names(Russian_stimuli)[names(Russian_stimuli) == "IPI"] <- "IPI_stimuli"
+names(Russian_stimuli)[names(Russian_stimuli) == "Item"] <- "Token"
+
+#setwd("~/Desktop/test")
+data_trans<- read.table("ex2_transcription_mono.txt", header=T)
+data_all<-merge(data_trans,Russian_stimuli[,c("Token","intensity_stimuli","burst_stimuli","CC_stimuli","IBI_stimuli","IPI_stimuli")], by="Token",all=T)
+data<- subset(data_all, subject !="Han_Guang" & subject !="Li_Xiaoming")
+data$subject<-factor(data$subject)
+data_nonnative<-subset(data, Cluster !="nk")
+data_native<-subset(data, Cluster =="nk")
+data_nonnative_cc<-subset(data_nonnative, Nativeness !="CVC")
+data_nonnative_cc$Cluster <- factor(data_nonnative_cc$Cluster)
+
+```
+
+
+```{r, results= 'hide'}
+#Packages
+require(plyr)
+require(dplyr)
+require(ggplot2)
+require(MASS)
+require(VGAM)
+library(VGAM)
+require(lme4)
+library(MCMCglmm) 
+```
+
+
+###Table of transcriptions for each item
+```{r}
+table<-table(data$pinyin, data$stimulus)
+frq.table<-prop.table(table, 2)
+frq.table<-data.frame(frq.table)
+frq.table<-subset(frq.table, Freq != 0)
+colnames(frq.table) <- c("Pinyin", "Input","Frequency")
+```
+
+```{r}
+
+
+frq_correct <- ddply(data, c("Nativeness","Native"),summarize,
+              n=sum(!is.na(Correct)),
+              m=mean(Correct,na.rm = TRUE),
+              sd=sd(Correct,na.rm = TRUE),
+              se=sd/sqrt(n),
+              ci=se * qt (.975,n-1)
+)
+frq_correct
+
+data_ss<- subset(data, Manner == "SS")
+
+
+frq_correct_ss <- ddply(data_ss, c("Nativeness","Position"),summarize,
+              n=sum(!is.na(Correct)),
+              m=mean(Correct,na.rm = TRUE)
+)
+frq_correct_ss
+
+frq_v_ss <- ddply(data_ss, c("Nativeness","Position"),summarize,
+              n=sum(!is.na(Vowel)),
+              m=mean(Vowel,na.rm = TRUE)
+)
+frq_v_ss
+
+frq_c1del_ss <- ddply(data_ss, c("Nativeness","Position"),summarize,
+              n=sum(!is.na(C1_deletion)),
+              m=mean(C1_deletion,na.rm = TRUE)
+)
+frq_c1del_ss
+
+frq_c2del_ss <- ddply(data_ss, c("Nativeness","Position"),summarize,
+              n=sum(!is.na(C2_deletion)),
+              m=mean(C2_deletion,na.rm = TRUE)
+)
+frq_c2del_ss
+
+frq_c1chg_ss <- ddply(data_ss, c("Nativeness","Position"),summarize,
+              n=sum(!is.na(C1_change)),
+              m=mean(C1_change,na.rm = TRUE)
+)
+frq_c1chg_ss
+
+frq_c2chg_ss <- ddply(data_ss, c("Nativeness","Position"),summarize,
+              n=sum(!is.na(C2_change)),
+              m=mean(C2_change,na.rm = TRUE)
+)
+frq_c2chg_ss
+
+```
+
+##Plot for modifications
+####General Plot: non-native clusters
+```{r, include= FALSE}
+
+
+conf_withoutV <- ddply(data_nonnative, c("Nativeness"),summarize,
+              n=sum(!is.na(Correct)),
+              m=mean(Correct,na.rm = TRUE),
+              sd=sd(Correct,na.rm = TRUE),
+              se=sd/sqrt(n),
+              ci=se * qt (.975,n-1)
+)
+conf_withoutV
+conf_withoutV$category <- "withoutV" #add a colume
+
+conf_v <- ddply(data_nonnative, c("Nativeness"),summarize,
+              n=sum(!is.na(Vowel)),
+              m=mean(Vowel,na.rm = TRUE),
+              sd=sd(Vowel,na.rm = TRUE),
+              se=sd/sqrt(n),
+              ci=se * qt (.975,n-1)
+)
+conf_v
+conf_v$category <- "Vowel" #add a colume
+
+conf_del1 <- ddply(data_nonnative, c("Nativeness"),summarize,
+              n=sum(!is.na(C1_deletion)),
+              m=mean(C1_deletion,na.rm = TRUE),
+              sd=sd(C1_deletion,na.rm = TRUE),
+              se=sd/sqrt(n),
+              ci=se * qt (.975,n-1)
+)
+conf_del1
+conf_del1$category <- "C1_deletion"
+
+conf_del2 <- ddply(data_nonnative, c("Nativeness"),summarize,
+              n=sum(!is.na(C1_deletion)),
+              m=mean(C2_deletion,na.rm = TRUE),
+              sd=sd(C2_deletion,na.rm = TRUE),
+              se=sd/sqrt(n),
+              ci=se * qt (.975,n-1)
+)
+conf_del2
+conf_del2$category <- "C2_deletion"
+
+conf_ch1 <- ddply(data_nonnative, c("Nativeness"),summarize,
+              n=sum(!is.na(C1_change)),
+              m=mean(C1_change,na.rm = TRUE),
+              sd=sd(C1_change,na.rm = TRUE),
+              se=sd/sqrt(n),
+              ci=se * qt (.975,n-1)
+)
+conf_ch1
+conf_ch1$category <- "C1_change"
+
+conf_ch2 <- ddply(data_nonnative, c("Nativeness"),summarize,
+              n=sum(!is.na(C2_change)),
+              m=mean(C2_change,na.rm = TRUE),
+              sd=sd(C2_change,na.rm = TRUE),
+              se=sd/sqrt(n),
+              ci=se * qt (.975,n-1)
+)
+conf_ch2
+conf_ch2$category <- "C2_change"
+
+#merge data
+category_data_general <- rbind(conf_withoutV, conf_v, conf_del1, conf_del2, conf_ch1, conf_ch2)
+```
+
+```{r}
+category_data_general$category <- factor(category_data_general$category, levels = c("withoutV","Vowel", "C1_deletion", "C2_deletion", "C1_change", "C2_change"))
+
+
+plot_modif_general_nonnative<- ggplot(na.omit(category_data_general), aes(x=Nativeness, y=m, fill=category)) +              
+  geom_bar(stat="identity", position=position_dodge(), color="black", size=.3) +        
+  geom_errorbar(aes(ymin=m-ci,ymax=m+ci), width=0.2, size=.3, position=position_dodge(.9)) +   #for errorbar
+  #scale_x_discrete(limits=c("SS","SN","SL","LS","NS")) + # for x aes order 
+  #facet_grid(Position ~ Nativeness) +
+  labs (x ="") +            # for x axis label
+  labs (y = "Precent") +
+  scale_fill_manual(name="Modifications",
+                    breaks=c("withoutV","Vowel","C1_deletion", "C2_deletion", "C1_change", "C2_change"),
+                    labels=c("Without V","Illusory V","C1 deletion", "C2 deletion", "C1 change", "C2 change"),
+                    values = c("rosybrown","coral4", "grey10", "grey35", "grey60","grey87")) +
+  theme(axis.title.x = element_text(vjust= 0), axis.title.y = element_text(vjust=0.7)) 
+```
+
+```{r}
+plot_modif_general_nonnative
+```
+
+####Plot: native nk
+```{r}
+
+
+conf_withoutV <- ddply(data_native, c("Nativeness"),summarize,
+              n=sum(!is.na(Correct)),
+              m=mean(Correct,na.rm = TRUE),
+              sd=sd(Correct,na.rm = TRUE),
+              se=sd/sqrt(n),
+              ci=se * qt (.975,n-1)
+)
+conf_withoutV
+conf_withoutV$category <- "withoutV" #add a colume
+
+conf_v <- ddply(data_native, c("Nativeness"),summarize,
+              n=sum(!is.na(Vowel)),
+              m=mean(Vowel,na.rm = TRUE),
+              sd=sd(Vowel,na.rm = TRUE),
+              se=sd/sqrt(n),
+              ci=se * qt (.975,n-1)
+)
+conf_v
+conf_v$category <- "Vowel" #add a colume
+
+conf_del1 <- ddply(data_native, c("Nativeness"),summarize,
+              n=sum(!is.na(C1_deletion)),
+              m=mean(C1_deletion,na.rm = TRUE),
+              sd=sd(C1_deletion,na.rm = TRUE),
+              se=sd/sqrt(n),
+              ci=se * qt (.975,n-1)
+)
+conf_del1
+conf_del1$category <- "C1_deletion"
+
+conf_del2 <- ddply(data_native, c("Nativeness"),summarize,
+              n=sum(!is.na(C1_deletion)),
+              m=mean(C2_deletion,na.rm = TRUE),
+              sd=sd(C2_deletion,na.rm = TRUE),
+              se=sd/sqrt(n),
+              ci=se * qt (.975,n-1)
+)
+conf_del2
+conf_del2$category <- "C2_deletion"
+
+conf_ch1 <- ddply(data_native, c("Nativeness"),summarize,
+              n=sum(!is.na(C1_change)),
+              m=mean(C1_change,na.rm = TRUE),
+              sd=sd(C1_change,na.rm = TRUE),
+              se=sd/sqrt(n),
+              ci=se * qt (.975,n-1)
+)
+conf_ch1
+conf_ch1$category <- "C1_change"
+
+conf_ch2 <- ddply(data_native, c("Nativeness"),summarize,
+              n=sum(!is.na(C2_change)),
+              m=mean(C2_change,na.rm = TRUE),
+              sd=sd(C2_change,na.rm = TRUE),
+              se=sd/sqrt(n),
+              ci=se * qt (.975,n-1)
+)
+conf_ch2
+conf_ch2$category <- "C2_change"
+
+#merge data
+category_data_general_nk <- rbind(conf_withoutV, conf_v, conf_del1, conf_del2, conf_ch1, conf_ch2)
+```
+
+```{r}
+category_data_general_nk$category <- factor(category_data_general_nk$category, levels = c("withoutV","Vowel", "C1_deletion", "C2_deletion", "C1_change", "C2_change"))
+
+library(ggplot2)
+plot_modif_general_nk<- ggplot(na.omit(category_data_general_nk), aes(x=Nativeness, y=m, fill=category)) +              
+  geom_bar(stat="identity", position=position_dodge(), color="black", size=.3) +        
+  geom_errorbar(aes(ymin=m-ci,ymax=m+ci), width=0.2, size=.3, position=position_dodge(.9)) +   #for errorbar
+  #scale_x_discrete(limits=c("SS","SN","SL","LS","NS")) + # for x aes order 
+  #facet_grid(Position ~ Nativeness) +
+  labs (x ="") +            # for x axis label
+  labs (y = "Precent") +
+  scale_fill_manual(name="Modifications",
+                    breaks=c("withoutV","Vowel","C1_deletion", "C2_deletion", "C1_change", "C2_change"),
+                    labels=c("Without V","Illusory V","C1 deletion", "C2 deletion", "C1 change", "C2 change"),
+                    values = c("rosybrown","coral4", "grey10", "grey35", "grey60","grey87")) +
+  theme(axis.title.x = element_text(vjust= 0), axis.title.y = element_text(vjust=0.7)) 
+```
+
+```{r}
+plot_modif_general_nk
+```
+
+
+####Plot: non-native clusters across manners
+```{r, include= FALSE}
+
+conf_withoutV <- ddply(data_nonnative_clusters, c("Position","Manner"),summarize,
+              n=sum(!is.na(Correct)),
+              m=mean(Correct,na.rm = TRUE),
+              sd=sd(Correct,na.rm = TRUE),
+              se=sd/sqrt(n),
+              ci=se * qt (.975,n-1)
+)
+conf_withoutV
+conf_withoutV$category <- "withoutV" #add a colume
+
+conf_v <- ddply(data_nonnative_clusters, c("Position","Manner"),summarize,
+              n=sum(!is.na(Vowel)),
+              m=mean(Vowel,na.rm = TRUE),
+              sd=sd(Vowel,na.rm = TRUE),
+              se=sd/sqrt(n),
+              ci=se * qt (.975,n-1)
+)
+conf_v
+conf_v$category <- "Vowel" #add a colume
+
+conf_del1 <- ddply(data_nonnative_clusters, c("Position","Manner"),summarize,
+              n=sum(!is.na(C1_deletion)),
+              m=mean(C1_deletion,na.rm = TRUE),
+              sd=sd(C1_deletion,na.rm = TRUE),
+              se=sd/sqrt(n),
+              ci=se * qt (.975,n-1)
+)
+conf_del1
+conf_del1$category <- "C1_deletion"
+
+conf_del2 <- ddply(data_nonnative_clusters, c("Position","Manner"),summarize,
+              n=sum(!is.na(C1_deletion)),
+              m=mean(C2_deletion,na.rm = TRUE),
+              sd=sd(C2_deletion,na.rm = TRUE),
+              se=sd/sqrt(n),
+              ci=se * qt (.975,n-1)
+)
+conf_del2
+conf_del2$category <- "C2_deletion"
+
+conf_ch1 <- ddply(data_nonnative_clusters, c("Position","Manner"),summarize,
+              n=sum(!is.na(C1_change)),
+              m=mean(C1_change,na.rm = TRUE),
+              sd=sd(C1_change,na.rm = TRUE),
+              se=sd/sqrt(n),
+              ci=se * qt (.975,n-1)
+)
+conf_ch1
+conf_ch1$category <- "C1_change"
+
+conf_ch2 <- ddply(data_nonnative_clusters, c("Position","Manner"),summarize,
+              n=sum(!is.na(C2_change)),
+              m=mean(C2_change,na.rm = TRUE),
+              sd=sd(C2_change,na.rm = TRUE),
+              se=sd/sqrt(n),
+              ci=se * qt (.975,n-1)
+)
+conf_ch2
+conf_ch2$category <- "C2_change"
+
+#merge data
+category_data_nonnative_manner <- rbind(conf_withoutV, conf_v, conf_del1, conf_del2, conf_ch1, conf_ch2)
+```
+
+```{r}
+category_data_nonnative_manner$category <- factor(category_data_nonnative_manner$category, levels = c("withoutV","Vowel", "C1_deletion", "C2_deletion", "C1_change", "C2_change"))
+
+library(ggplot2)
+plot_modif_manner<- ggplot(category_data_nonnative_manner, aes(x=Manner, y=m, fill=category)) +              
+  geom_bar(stat="identity", position=position_dodge(), color="black", size=.3) +        
+  geom_errorbar(aes(ymin=m-ci,ymax=m+ci), width=0.2, size=.3, position=position_dodge(.9)) +   #for errorbar
+  scale_x_discrete(limits=c("SS","SN","SL","LS","NS")) + # for x aes order 
+  facet_grid(Position~.) +
+  labs (x ="") +            # for x axis label
+  labs (y = "Precent") +
+  scale_fill_manual(name="Modifications",
+                    breaks=c("withoutV","Vowel","C1_deletion", "C2_deletion", "C1_change", "C2_change"),
+                    labels=c("Without V","Illusory V","C1 deletion", "C2 deletion", "C1 change", "C2 change"),
+                    values = c("rosybrown","coral4", "grey10", "grey35", "grey60","grey87")) +
+  theme(axis.title.x = element_text(vjust= 0), axis.title.y = element_text(vjust=0.7)) 
+```
+
+```{r}
+plot_modif_manner
+```
+
+
+
+##1.contrast coding
+#### This data to be analysed are modifications from transcription of consonant sequences C1C2, including epenthesis (vowel), C1 deletion (C1_deletion), C2 deletion (C2_deletion), C1 change (C1_change), C2 change (C2_change). These modifications were coded by taking the form of several binary columns. 
+
+#### How I coded the data? 
+For each modification, a value of 1 in a column shows the presence of this modification, and 0 indicates its absence. There are multiple modifications that constitute <25% of the data. For exemple, in CC nativeness, epenthesis and C1 change both occured (e.g./ptaka/->/thatak??/). Moreover, to see how nativeness influences the perception of epenthesis and other modifications by comparing transcription in CC and CVC nativenesss, we also coded the same way for transcriptions in CVC, which is, when there is a vowel transcribed between C1C2 in CVC, we coded "1" in the column of vowel. Thus, there are multiple modifications as epenthesis and C1 change (e.g. pataka-> /thatak??). Multiple modification with vowel + consonant change is <24% of the data. Unidentificable modifications were removed prior to analysis (<3%).  The vowel transcribed type served as the baseline for the dependent variable.
+
+#### All binary fixed factors were effect coded (or deviation coded in R) (sum-to-zero) and scaled to have a mean of zero. And the fixed factor with 3 levels for Manner were used Successive Differences Contrast Coding. The contrast coefficients are chosen so that the coded coefficients in a one-way layout are the differences between the means of the second and first levels, the third and second levels, and so on.  
+
+
+##2.Analysis: 
+#### 1. Modification of consonants are less in word-initial Positions than in word-medial Position?
+#### 2. Are there different modification strategies in different word Positions?
+#### 3. More epenthesis perceived in SS > SN > SL according to sonority profile?
+
+#### -The statistical analysis is multinomial (polytomous) logistic regression with dependent factors, C1_deletion, C2_deletion, C1_change, C2_change, epenthetic vowel. Because the usual primary modification  appears to be epenthetic vowel, we'll use epenthetic vowel as the baseline category; the four logit equations will then describe the log-odds that listeners perceived other modifications instead of epenthetic vowel.
+#### -The main factors of interest (fixed factors) are Word Position (initial & medial), Manner (SL, SN, SS) and compare to the controls CVC (Nativeness). 
+#### -no random effect allowed in VGAM package .
+
+```{r, include= FALSE}
+data_nonnative$ClusterType <- paste(data_nonnative$Cluster,data_nonnative$Position)
+data_nonnative$ClusterType <- as.factor(data_nonnative$ClusterType)
+
+contrasts(data_nonnative$Position) <- contr.sum(2)
+contrasts(data_nonnative$Nativeness) <- contr.sum(2)
+
+data_nonnative$Manner <- factor(data_nonnative$Manner, levels=c("SL","SS","SN","LS"))
+#contrasts(data_nonnative$Manner) <- contr.sdif(5)
+#contrasts(data_nonnative$Manner) <- contr.sum(5)
+
+
+```
+
+####In general 
+
+```{r}
+
+k <- 5 # the number of categories in our outcome variable
+#I and J are matrices that we???ll use to set up constraints on the covariance structure of the residuals.see Course Notes P96
+I <- diag(k-1) #should make matrix of 0's with diagonal of 1's, dimensions k-1 rows and k-1 columns
+J <- matrix(rep(1, (k-1)^2), c(k-1, k-1)) # should make k-1 x k-1 matrix of 1's 
+
+prior.m0 <- list(
+  R = list (fix=1, V=(1/k) * (I+J), n=k-1), 
+  G=list(
+    G1=list(V = diag(4),    # G1, G2, G3 is the prior definition for subject random effects. 
+            n = 4),
+    G2=list(V = diag(2),    # G1, G2, G3 is the prior definition for subject random effects. 
+            n = 2),
+    G4=list(V = diag(4),
+            n = 4),
+    G5=list(V = diag(2),    # G1, G2, G3 is the prior definition for subject random effects. 
+            n = 2)))
+
+m0<- MCMCglmm(cbind(C1_deletion,C2_deletion,C1_change,C2_change,Vowel) ~  trait -1 + trait:Nativeness,
+              # Vowel the final Outputs is the baseline Outputs, 
+               random = ~ us(trait) : subject +
+                          us(Nativeness) : subject+
+                          us(trait) : stimulus +
+                          us(Nativeness) : stimulus,
+               rcov   = ~ us(trait):units, 
+               data   = data_nonnative,
+               family = "multinomial5",
+               prior  = prior.m0,
+              # pl=TRUE,
+               slice = TRUE,
+               # singular.ok=TRUE,
+               thin   = 10,        # 3 parameters to set to control the sampling process: nitt, burnin and thin. thin=n means want to keep every n-th sample.
+               burnin = 10001,       # burn-in period after which we start collecting samples
+               nitt   = 50001)       # how many samples we want to produce overall 
+
+summary(m0)
+HPDinterval(m0$Sol, 0.95)
+
+par(mfrow=c(8,2), mar=c(2,2,1,0))
+plot(m0$Sol)
+
+par(mfrow=c(8,2), mar=c(2,2,1,0))
+autocorr.plot(m0$Sol)
+
+```
+
+
+
+****
+##SS clusters
+
+```{r}
+data_ss<-subset(data, Manner =="SS")
+data_ss_cc<-subset(data_ss, Nativeness =="CC")
+data_ss_cc<-subset(data_ss_cc, intensity_stimuli !="NA")
+
+```
+
+####plot
+```{r}
+
+conf_withoutV_ss <- ddply(data_ss, c("Nativeness","Cluster","Position"),summarize,
+              n=sum(!is.na(Correct)),
+              m=mean(Correct,na.rm = TRUE),
+              sd=sd(Correct,na.rm = TRUE),
+              se=sd/sqrt(n),
+              ci=se * qt (.975,n-1)
+)
+conf_withoutV_ss
+conf_withoutV_ss$category <- "withoutV" #add a colume
+
+conf_v_ss <- ddply(data_ss, c("Nativeness","Cluster","Position"),summarize,
+              n=sum(!is.na(Vowel)),
+              m=mean(Vowel,na.rm = TRUE),
+              sd=sd(Vowel,na.rm = TRUE),
+              se=sd/sqrt(n),
+              ci=se * qt (.975,n-1)
+)
+conf_v_ss
+conf_v_ss$category <- "Vowel" #add a colume
+
+conf_del1_ss <- ddply(data_ss, c("Nativeness","Cluster","Position"),summarize,
+              n=sum(!is.na(C1_deletion)),
+              m=mean(C1_deletion,na.rm = TRUE),
+              sd=sd(C1_deletion,na.rm = TRUE),
+              se=sd/sqrt(n),
+              ci=se * qt (.975,n-1)
+)
+conf_del1_ss
+conf_del1_ss$category <- "C1_deletion"
+
+conf_del2_ss <- ddply(data_ss, c("Nativeness","Cluster","Position"),summarize,
+              n=sum(!is.na(C1_deletion)),
+              m=mean(C2_deletion,na.rm = TRUE),
+              sd=sd(C2_deletion,na.rm = TRUE),
+              se=sd/sqrt(n),
+              ci=se * qt (.975,n-1)
+)
+conf_del2_ss
+conf_del2_ss$category <- "C2_deletion"
+
+conf_ch1_ss <- ddply(data_ss, c("Nativeness","Cluster","Position"),summarize,
+              n=sum(!is.na(C1_change)),
+              m=mean(C1_change,na.rm = TRUE),
+              sd=sd(C1_change,na.rm = TRUE),
+              se=sd/sqrt(n),
+              ci=se * qt (.975,n-1)
+)
+conf_ch1_ss
+conf_ch1_ss$category <- "C1_change"
+
+conf_ch2_ss <- ddply(data_ss, c("Nativeness","Cluster","Position"),summarize,
+              n=sum(!is.na(C2_change)),
+              m=mean(C2_change,na.rm = TRUE),
+              sd=sd(C2_change,na.rm = TRUE),
+              se=sd/sqrt(n),
+              ci=se * qt (.975,n-1)
+)
+conf_ch2_ss
+conf_ch2_ss$category <- "C2_change"
+
+#merge data
+category_data_ss <- rbind(conf_withoutV_ss, conf_v_ss, conf_del1_ss, conf_del2_ss, conf_ch1_ss, conf_ch2_ss)
+```
+
+
+```{r}
+category_data_ss$category <- factor(category_data_ss$category, levels = c("withoutV","Vowel", "C1_deletion", "C2_deletion", "C1_change", "C2_change"))
+
+plot_modif_ss<- ggplot(na.omit(category_data_ss), aes(x=Cluster, y=m, fill=category)) +              
+  geom_bar(stat="identity", position=position_dodge(), color="black", size=.3) +        
+  geom_errorbar(aes(ymin=m-ci,ymax=m+ci), width=0.2, size=.3, position=position_dodge(.9)) +   #for errorbar
+  #scale_x_discrete(limits=c("SS","SN","SL","LS","NS")) + # for x aes order 
+  facet_grid(Position ~ Nativeness) +
+  labs (x ="") +            # for x axis label
+  labs (y = "Precent") +
+  scale_fill_manual(name="Modifications",
+                    breaks=c("withoutV","Vowel","C1_deletion", "C2_deletion", "C1_change", "C2_change"),
+                    labels=c("Without V","Illusory V","C1 deletion", "C2 deletion", "C1 change", "C2 change"),
+                    values = c("rosybrown","coral4", "grey10", "grey35", "grey60","grey87")) +
+  theme(axis.title.x = element_text(vjust= 0), axis.title.y = element_text(vjust=0.7)) 
+```
+
+```{r}
+plot_modif_ss
+```
+
+
+####Analyses
+
+```{r}
+data_ss<-subset(data_nonnative, Manner =="SS")
+data_ss<-subset(data_ss, intensity_stimuli !="NA")
+
+
+contrasts(data_ss$Position) <- contr.sum(2)
+contrasts(data_ss$Nativeness) <- contr.sum(2)
+
+k <- 5 # the number of categories in our outcome variable
+#I and J are matrices that we???ll use to set up constraints on the covariance structure of the residuals.see Course Notes P96
+I <- diag(k-1) #should make matrix of 0's with diagonal of 1's, dimensions k-1 rows and k-1 columns
+J <- matrix(rep(1, (k-1)^2), c(k-1, k-1)) # should make k-1 x k-1 matrix of 1's 
+
+prior.m0 <- list(
+  R = list (fix=1, V=(1/k) * (I+J), n=k-1), 
+  G=list(
+    G1=list(V = diag(4),    # G1, G2, G3 is the prior definition for subject random effects. 
+            n = 4),
+    G2=list(V = diag(2),    # G1, G2, G3 is the prior definition for subject random effects. 
+            n = 2),
+    G3=list(V = diag(2),    # G1, G2, G3 is the prior definition for subject random effects. 
+            n = 2),
+    G3=list(V = diag(1),    # G1, G2, G3 is the prior definition for subject random effects. 
+            n = 1),
+    G3=list(V = diag(1),    # G1, G2, G3 is the prior definition for subject random effects. 
+            n = 1),
+    G4=list(V = diag(4),    # G1, G2, G3 is the prior definition for subject random effects. 
+            n = 4),
+    G5=list(V = diag(2),    # G1, G2, G3 is the prior definition for subject random effects. 
+            n = 2),
+    G6=list(V = diag(2),
+            n = 2)))
+
+m.ss<- MCMCglmm(cbind(C1_deletion,C1_change,C2_deletion,C2_change,Vowel) ~ trait + trait:Nativeness * Position+ trait:intensity_stimuli + trait:burst_stimuli -1,
+              # Vowel the final Outputs is the baseline Outputs, 
+               random = ~ us(trait) : subject +
+                          us(Nativeness) : subject + 
+                          us(Position) : subject +
+                          us(intensity_stimuli) : subject +
+                          us(burst_stimuli) : subject +
+                          #us(Conditions) : Participants +
+                          us(trait) : stimulus+ 
+                          us(Nativeness) : stimulus + 
+                          us (Position) : stimulus,
+                          #us(Conditions) : Clusters,
+                # us() : subject for random effects
+               rcov   = ~ us(trait):units, 
+               data   = data_ss,
+               family = "multinomial5",
+               prior  = prior.m0,
+              # pl=TRUE,
+               slice = TRUE,
+               #singular.ok=TRUE,
+               thin   = 25,        # 3 parameters to set to control the sampling process: nitt, burnin and thin. thin=n means want to keep every n-th sample.
+               burnin = 10000,       # burn-in period after which we start collecting samples
+               nitt   = 50000)       # how many samples we want to produce overall  #120000
+                          #The model was ran for 60,000 iterations with a burn-in phase of 10,000 and a thinning interval of 25
+
+summary(m.ss)
+HPDinterval(m.ss$Sol, 0.95)
+
+par(mfrow=c(8,2), mar=c(2,2,1,0))
+plot(m.ss$Sol)
+
+par(mfrow=c(8,2), mar=c(2,2,1,0))
+autocorr.plot(m.ss$Sol)
+
+```
+
+
+```{r}
+contrasts(data_ss$Position) <- contr.sum(2)
+contrasts(data_ss$Nativeness) <- contr.sum(2)
+
+k <- 5 # the number of categories in our outcome variable
+#I and J are matrices that we???ll use to set up constraints on the covariance structure of the residuals.see Course Notes P96
+I <- diag(k-1) #should make matrix of 0's with diagonal of 1's, dimensions k-1 rows and k-1 columns
+J <- matrix(rep(1, (k-1)^2), c(k-1, k-1)) # should make k-1 x k-1 matrix of 1's 
+
+prior.m0 <- list(
+  R = list (fix=1, V=(1/k) * (I+J), n=k-1), 
+  G=list(
+    G1=list(V = diag(4),    # G1, G2, G3 is the prior definition for subject random effects. 
+            n = 4),
+    G2=list(V = diag(2),    # G1, G2, G3 is the prior definition for subject random effects. 
+            n = 2),
+    G3=list(V = diag(2),    # G1, G2, G3 is the prior definition for subject random effects. 
+            n = 2),
+    G4=list(V = diag(4),    # G1, G2, G3 is the prior definition for subject random effects. 
+            n = 4),
+    G5=list(V = diag(2),    # G1, G2, G3 is the prior definition for subject random effects. 
+            n = 2),
+    G6=list(V = diag(2),
+            n = 2)))
+
+m.ss<- MCMCglmm(cbind(C1_deletion,C1_change,C2_deletion,C2_change,Vowel) ~ trait + trait:Nativeness * Position -1,
+              # Vowel the final Outputs is the baseline Outputs, 
+               random = ~ us(trait) : subject +
+                          us(Nativeness) : subject + 
+                          us(Position) : subject +
+                          #us(Conditions) : Participants +
+                          us(trait) : stimulus+ 
+                          us(Nativeness) : stimulus + 
+                          us (Position) : stimulus,
+                          #us(Conditions) : Clusters,
+                # us() : subject for random effects
+               rcov   = ~ us(trait):units, 
+               data   = data_ss,
+               family = "multinomial5",
+               prior  = prior.m0,
+              # pl=TRUE,
+               slice = TRUE,
+               #singular.ok=TRUE,
+               thin   = 25,        # 3 parameters to set to control the sampling process: nitt, burnin and thin. thin=n means want to keep every n-th sample.
+               burnin = 10000,       # burn-in period after which we start collecting samples
+               nitt   = 50000)       # how many samples we want to produce overall  #120000
+                          #The model was ran for 60,000 iterations with a burn-in phase of 10,000 and a thinning interval of 25
+
+summary(m.ss)
+HPDinterval(m.ss$Sol, 0.95)
+
+par(mfrow=c(8,2), mar=c(2,2,1,0))
+plot(m.ss$Sol)
+
+par(mfrow=c(8,2), mar=c(2,2,1,0))
+autocorr.plot(m.ss$Sol)
+
+```
+
+
+```{}
+data_ss_cc<-subset(data_ss, Nativeness =="CC" & burst_stimuli != "NA")
+prior.modif.ss = list(R = list(V = 12, fix = 1), G = list(G1 = list(V = 1, nu = 1, alpha.mu = 0, alpha.V = 1000),
+                                                          G2 = list(V = 1, nu = 1, alpha.mu = 0, alpha.V = 1000)))
+
+data_ss_cc <- within(data_ss_cc, Item <- relevel(Item, ref = "kt medial"))
+
+
+modif.C1del.ss<- MCMCglmm(C1_deletion ~ Item , random = ~subject + stimulus + (Item):subject, data = data_ss_cc, family = "categorical", prior = prior.modif.ss, verbose = FALSE)
+summary(modif.C1del.ss)
+
+
+modif.C1chg.ss<- MCMCglmm(C1_change ~ Item, random = ~subject, data = data_ss_cc, family = "categorical", prior = prior.modif.ss, verbose = FALSE)
+summary(modif.C1chg.ss)
+
+```
+
+****
+##sl clusters
+```{r}
+data_sl<-subset(data, Manner =="SL")
+data_sl$Item <- paste(data_sl$Cluster,data_sl$Position)
+data_sl$Item <- as.factor(data_sl$Item)
+```
+
+####plot
+```{r}
+
+conf_withoutV_sl <- ddply(data_sl, c("Nativeness","Cluster","Position"),summarize,
+              n=sum(!is.na(Correct)),
+              m=mean(Correct,na.rm = TRUE),
+              sd=sd(Correct,na.rm = TRUE),
+              se=sd/sqrt(n),
+              ci=se * qt (.975,n-1)
+)
+conf_withoutV_sl
+conf_withoutV_sl$category <- "withoutV" #add a colume
+
+conf_v_sl <- ddply(data_sl, c("Nativeness","Position","Cluster"),summarize,
+              n=sum(!is.na(Vowel)),
+              m=mean(Vowel,na.rm = TRUE),
+              sd=sd(Vowel,na.rm = TRUE),
+              se=sd/sqrt(n),
+              ci=se * qt (.975,n-1)
+)
+conf_v_sl
+conf_v_sl$category <- "Vowel" #add a colume
+
+conf_del1_sl <- ddply(data_sl, c("Nativeness","Position","Cluster"),summarize,
+              n=sum(!is.na(C1_deletion)),
+              m=mean(C1_deletion,na.rm = TRUE),
+              sd=sd(C1_deletion,na.rm = TRUE),
+              se=sd/sqrt(n),
+              ci=se * qt (.975,n-1)
+)
+conf_del1_sl
+conf_del1_sl$category <- "C1_deletion"
+
+conf_del2_sl <- ddply(data_sl, c("Nativeness","Position","Cluster"),summarize,
+              n=sum(!is.na(C1_deletion)),
+              m=mean(C2_deletion,na.rm = TRUE),
+              sd=sd(C2_deletion,na.rm = TRUE),
+              se=sd/sqrt(n),
+              ci=se * qt (.975,n-1)
+)
+conf_del2_sl
+conf_del2_sl$category <- "C2_deletion"
+
+conf_ch1_sl <- ddply(data_sl, c("Nativeness","Position","Cluster"),summarize,
+              n=sum(!is.na(C1_change)),
+              m=mean(C1_change,na.rm = TRUE),
+              sd=sd(C1_change,na.rm = TRUE),
+              se=sd/sqrt(n),
+              ci=se * qt (.975,n-1)
+)
+conf_ch1_sl
+conf_ch1_sl$category <- "C1_change"
+
+conf_ch2_sl <- ddply(data_sl, c("Nativeness","Position","Cluster"),summarize,
+              n=sum(!is.na(C2_change)),
+              m=mean(C2_change,na.rm = TRUE),
+              sd=sd(C2_change,na.rm = TRUE),
+              se=sd/sqrt(n),
+              ci=se * qt (.975,n-1)
+)
+conf_ch2_sl
+conf_ch2_sl$category <- "C2_change"
+
+#merge data
+category_data_sl <- rbind(conf_withoutV_sl, conf_v_sl, conf_del1_sl, conf_del2_sl, conf_ch1_sl, conf_ch2_sl)
+```
+
+
+```{r}
+category_data_sl$category <- factor(category_data_sl$category, levels = c("withoutV","Vowel", "C1_deletion", "C2_deletion", "C1_change", "C2_change"))
+
+plot_modif_sl<- ggplot(na.omit(category_data_sl), aes(x=Cluster, y=m, fill=category)) +              
+  geom_bar(stat="identity", position=position_dodge(), color="black", size=.3) +        
+  geom_errorbar(aes(ymin=m-ci,ymax=m+ci), width=0.2, size=.3, position=position_dodge(.9)) +   #for errorbar
+  #scale_x_discrete(limits=c("sl","sl","SL","LS","NS")) + # for x aes order 
+  facet_grid(Position ~ Nativeness) +
+  labs (x ="") +            # for x axis label
+  labs (y = "Precent") +
+  scale_fill_manual(name="Modifications",
+                    breaks=c("withoutV","Vowel","C1_deletion", "C2_deletion", "C1_change", "C2_change"),
+                    labels=c("Without V","Illusory V","C1 deletion", "C2 deletion", "C1 change", "C2 change"),
+                    values = c("rosybrown","coral4", "grey10", "grey35", "grey60","grey87")) +
+  theme(axis.title.x = element_text(vjust= 0), axis.title.y = element_text(vjust=0.7)) 
+```
+
+```{r}
+plot_modif_sl
+```
+
+
+####Analyses
+
+
+```{r}
+data_sl<-subset(data_nonnative, Manner =="SL")
+data_sl<-subset(data_sl, intensity_stimuli !="NA")
+
+
+contrasts(data_sl$Position) <- contr.sum(2)
+contrasts(data_sl$Nativeness) <- contr.sum(2)
+
+k <- 5 # the number of categories in our outcome variable
+#I and J are matrices that we???ll use to set up constraints on the covariance structure of the residuals.see Course Notes P96
+I <- diag(k-1) #should make matrix of 0's with diagonal of 1's, dimensions k-1 rows and k-1 columns
+J <- matrix(rep(1, (k-1)^2), c(k-1, k-1)) # should make k-1 x k-1 matrix of 1's 
+
+prior.m0 <- list(
+  R = list (fix=1, V=(1/k) * (I+J), n=k-1), 
+  G=list(
+    G1=list(V = diag(4),    # G1, G2, G3 is the prior definition for subject random effects. 
+            n = 4),
+    G2=list(V = diag(2),    # G1, G2, G3 is the prior definition for subject random effects. 
+            n = 2),
+    G3=list(V = diag(2),    # G1, G2, G3 is the prior definition for subject random effects. 
+            n = 2),
+    G3=list(V = diag(1),    # G1, G2, G3 is the prior definition for subject random effects. 
+            n = 1),
+    G3=list(V = diag(1),    # G1, G2, G3 is the prior definition for subject random effects. 
+            n = 1),
+    G4=list(V = diag(4),    # G1, G2, G3 is the prior definition for subject random effects. 
+            n = 4),
+    G5=list(V = diag(2),    # G1, G2, G3 is the prior definition for subject random effects. 
+            n = 2),
+    G6=list(V = diag(2),
+            n = 2)))
+
+m.sl<- MCMCglmm(cbind(C1_deletion,C1_change,C2_deletion,C2_change,Vowel) ~ trait + trait:Nativeness * Position+ trait:intensity_stimuli + trait:burst_stimuli -1,
+              # Vowel the final Outputs is the baseline Outputs, 
+               random = ~ us(trait) : subject +
+                          us(Nativeness) : subject + 
+                          us(Position) : subject +
+                          us(intensity_stimuli) : subject +
+                          us(burst_stimuli) : subject +
+                          #us(Conditions) : Participants +
+                          us(trait) : stimulus+ 
+                          us(Nativeness) : stimulus + 
+                          us (Position) : stimulus,
+                          #us(Conditions) : Clusters,
+                # us() : subject for random effects
+               rcov   = ~ us(trait):units, 
+               data   = data_sl,
+               family = "multinomial5",
+               prior  = prior.m0,
+              # pl=TRUE,
+               slice = TRUE,
+               #singular.ok=TRUE,
+               thin   = 25,        # 3 parameters to set to control the sampling process: nitt, burnin and thin. thin=n means want to keep every n-th sample.
+               burnin = 10000,       # burn-in period after which we start collecting samples
+               nitt   = 60000)       # how many samples we want to produce overall  #120000
+                          #The model was ran for 60,000 iterations with a burn-in phase of 10,000 and a thinning interval of 25
+
+summary(m.sl)
+HPDinterval(m.sl$Sol, 0.95)
+
+par(mfrow=c(8,2), mar=c(2,2,1,0))
+plot(m.sl$Sol)
+
+par(mfrow=c(8,2), mar=c(2,2,1,0))
+autocorr.plot(m.sl$Sol)
+
+```
+
+
+****
+
+##sn clusters
+
+```{r}
+data_sn<-subset(data, Manner =="SN")
+```
+
+####plot
+```{r}
+
+conf_withoutV_sn <- ddply(data_sn, c("Nativeness","Position"),summarize,
+              n=sum(!is.na(Correct)),
+              m=mean(Correct,na.rm = TRUE),
+              sd=sd(Correct,na.rm = TRUE),
+              se=sd/sqrt(n),
+              ci=se * qt (.975,n-1)
+)
+conf_withoutV_sn
+conf_withoutV_sn$category <- "withoutV" #add a colume
+
+conf_v_sn <- ddply(data_sn, c("Nativeness","Position"),summarize,
+              n=sum(!is.na(Vowel)),
+              m=mean(Vowel,na.rm = TRUE),
+              sd=sd(Vowel,na.rm = TRUE),
+              se=sd/sqrt(n),
+              ci=se * qt (.975,n-1)
+)
+conf_v_sn
+conf_v_sn$category <- "Vowel" #add a colume
+
+conf_del1_sn <- ddply(data_sn, c("Nativeness","Position"),summarize,
+              n=sum(!is.na(C1_deletion)),
+              m=mean(C1_deletion,na.rm = TRUE),
+              sd=sd(C1_deletion,na.rm = TRUE),
+              se=sd/sqrt(n),
+              ci=se * qt (.975,n-1)
+)
+conf_del1_sn
+conf_del1_sn$category <- "C1_deletion"
+
+conf_del2_sn <- ddply(data_sn, c("Nativeness","Position"),summarize,
+              n=sum(!is.na(C1_deletion)),
+              m=mean(C2_deletion,na.rm = TRUE),
+              sd=sd(C2_deletion,na.rm = TRUE),
+              se=sd/sqrt(n),
+              ci=se * qt (.975,n-1)
+)
+conf_del2_sn
+conf_del2_sn$category <- "C2_deletion"
+
+conf_ch1_sn <- ddply(data_sn, c("Nativeness","Position"),summarize,
+              n=sum(!is.na(C1_change)),
+              m=mean(C1_change,na.rm = TRUE),
+              sd=sd(C1_change,na.rm = TRUE),
+              se=sd/sqrt(n),
+              ci=se * qt (.975,n-1)
+)
+conf_ch1_sn
+conf_ch1_sn$category <- "C1_change"
+
+conf_ch2_sn <- ddply(data_sn, c("Nativeness","Position"),summarize,
+              n=sum(!is.na(C2_change)),
+              m=mean(C2_change,na.rm = TRUE),
+              sd=sd(C2_change,na.rm = TRUE),
+              se=sd/sqrt(n),
+              ci=se * qt (.975,n-1)
+)
+conf_ch2_sn
+conf_ch2_sn$category <- "C2_change"
+
+#merge data
+category_data_sn <- rbind(conf_withoutV_sn, conf_v_sn, conf_del1_sn, conf_del2_sn, conf_ch1_sn, conf_ch2_sn)
+```
+
+
+```{r}
+category_data_sn$category <- factor(category_data_sn$category, levels = c("withoutV","Vowel", "C1_deletion", "C2_deletion", "C1_change", "C2_change"))
+
+plot_modif_sn<- ggplot(na.omit(category_data_sn), aes(x=Nativeness, y=m, fill=category)) +              
+  geom_bar(stat="identity", position=position_dodge(), color="black", size=.3) +        
+  geom_errorbar(aes(ymin=m-ci,ymax=m+ci), width=0.2, size=.3, position=position_dodge(.9)) +   #for errorbar
+  #scale_x_discrete(limits=c("sn","SN","SL","LS","NS")) + # for x aes order 
+  facet_grid(Position ~ .) +
+  labs (x ="") +            # for x axis label
+  labs (y = "Precent") +
+  scale_fill_manual(name="Modifications",
+                    breaks=c("withoutV","Vowel","C1_deletion", "C2_deletion", "C1_change", "C2_change"),
+                    labels=c("Without V","Illusory V","C1 deletion", "C2 deletion", "C1 change", "C2 change"),
+                    values = c("rosybrown","coral4", "grey10", "grey35", "grey60","grey87")) +
+  theme(axis.title.x = element_text(vjust= 0), axis.title.y = element_text(vjust=0.7)) 
+```
+
+```{r}
+plot_modif_sn
+```
+
+
+####Analyses
+
+```{r}
+data_sn<-subset(data_nonnative, Manner =="SN")
+data_sn<-subset(data_sn, intensity_stimuli !="NA")
+
+
+contrasts(data_sn$Position) <- contr.sum(2)
+contrasts(data_sn$Nativeness) <- contr.sum(2)
+
+k <- 5 # the number of categories in our outcome variable
+#I and J are matrices that we???ll use to set up constraints on the covariance structure of the residuals.see Course Notes P96
+I <- diag(k-1) #should make matrix of 0's with diagonal of 1's, dimensions k-1 rows and k-1 columns
+J <- matrix(rep(1, (k-1)^2), c(k-1, k-1)) # should make k-1 x k-1 matrix of 1's 
+
+prior.sn <- list(
+  R = list (fix=1, V=(1/k) * (I+J), n=k-1), 
+  G=list(
+    G1=list(V = diag(4),    # G1, G2, G3 is the prior definition for subject random effects. 
+            n = 4),
+    G2=list(V = diag(2),    # G1, G2, G3 is the prior definition for subject random effects. 
+            n = 2)))
+
+m.sn<- MCMCglmm(cbind(C1_deletion,C1_change,C2_deletion,C2_change,Vowel) ~ trait + trait:Nativeness  -1,
+              # Vowel the final Outputs is the baseline Outputs, 
+               random = ~ us(trait) : subject +
+                          us(Nativeness) : subject,
+                          #us(Conditions) : Participants +
+
+                          #us(Conditions) : Clusters,
+                # us() : subject for random effects
+               rcov   = ~ us(trait):units, 
+               data   = data_sn,
+               family = "multinomial5",
+               prior  = prior.sn,
+              # pl=TRUE,
+               slice = TRUE,
+               #singular.ok=TRUE,
+               thin   = 10,        # 3 parameters to set to control the sampling procesn: nitt, burnin and thin. thin=n means want to keep every n-th sample.
+               burnin = 1501,       # burn-in period after which we start collecting samples
+               nitt   = 100001)
+summary(m.sn)
+HPDinterval(m.sn$Sol, 0.95)
+
+par(mfrow=c(8,2), mar=c(2,2,1,0))
+plot(m.sn$Sol)
+
+par(mfrow=c(8,2), mar=c(2,2,1,0))
+autocorr.plot(m.sn$Sol)
+
+```
+
+
+
+```{}
+k <- 5 # the number of categories in our outcome variable
+#I and J are matrices that we???ll use to set up constraints on the covariance structure of the residuals.see Course Notes P96
+I <- diag(k-1) #should make matrix of 0's with diagonal of 1's, dimensions k-1 rows and k-1 columns
+J <- matrix(rep(1, (k-1)^2), c(k-1, k-1)) # should make k-1 x k-1 matrix of 1's 
+
+prior.sn <- list(
+  R = list (fix=1, V=(1/k) * (I+J), n=k-1), 
+  G=list(
+    G1=list(V = diag(4),    # G1, G2, G3 is the prior definition for subject random effects. 
+            n = 4)))
+
+m.sn<- MCMCglmm(cbind(C1_deletion,C2_deletion,C1_change,C2_change,Vowel) ~  trait-1 + trait:Nativeness,
+              # Vowel the final Outputs is the baseline Outputs, 
+               random = ~ us(trait) : subject, # us() : subject for random effects
+                          #us(trait) : stimulus,
+               rcov   = ~ us(trait):units, 
+               data   = data_sn,
+               family = "multinomial5",
+               prior  = prior.sn,
+              # pl=TRUE,
+               slice = TRUE,
+               # singular.ok=TRUE,
+               thin   = 10,        # 3 parameters to set to control the sampling procesn: nitt, burnin and thin. thin=n means want to keep every n-th sample.
+               burnin = 1501,       # burn-in period after which we start collecting samples
+               nitt   = 100001)       # how many samples we want to produce overall 
+
+summary(m.sn)
+HPDinterval(m.sn$Sol, 0.95)
+
+par(mfrow=c(8,2), mar=c(2,2,1,0))
+plot(m.sn$Sol)
+
+par(mfrow=c(8,2), mar=c(2,2,1,0))
+autocorr.plot(m.sn$Sol)
+
+```
+
+
+```{}
+data_sn_cc<-subset(data_sn, Nativeness =="CC")
+prior.modif.sn = list(R = list(V = 10, fix = 1), G = list(G1 = list(V = 1, nu = 1, alpha.mu = 0, alpha.V = 1000)))
+
+modif.vowel.sn<- MCMCglmm(Vowel ~ Item, random = ~subject, data = data_sn_cc, family = "categorical", prior = prior.modif.sn, verbose = FALSE)
+summary(modif.vowel.sn)
+
+modif.C1del.sn<- MCMCglmm(C1_deletion ~ Item, random = ~subject, data = data_sn_cc, family = "categorical", prior = prior.modif.sn, verbose = FALSE)
+summary(modif.C1del.sn)
+
+
+modif.C2del.sn<- MCMCglmm(C2_deletion ~ Item, random = ~subject, data = data_sn_cc, family = "categorical", prior = prior.modif.sn, verbose = FALSE)
+summary(modif.C2del.sn)
+
+modif.C1chg.sn<- MCMCglmm(C1_change ~ Item, random = ~subject, data = data_sn_cc, family = "categorical", prior = prior.modif.sn, verbose = FALSE)
+summary(modif.C1chg.sn)
+
+modif.C2chg.sn<- MCMCglmm(C2_change ~ Item, random = ~subject, data = data_sn_cc, family = "categorical", prior = prior.modif.sn, verbose = FALSE)
+summary(modif.C2chg.sn)
+```
+
+
+***
+##ls clusters
+
+```{r}
+data_ls<-subset(data, Manner =="LS")
+
+```
+
+####plot
+```{r}
+
+conf_withoutV_ls <- ddply(data_ls, c("Nativeness","Cluster","Position"),summarize,
+              n=sum(!is.na(Correct)),
+              m=mean(Correct,na.rm = TRUE),
+              sd=sd(Correct,na.rm = TRUE),
+              se=sd/sqrt(n),
+              ci=se * qt (.975,n-1)
+)
+conf_withoutV_ls
+conf_withoutV_ls$category <- "withoutV" #add a colume
+
+conf_v_ls <- ddply(data_ls, c("Nativeness","Position","Cluster"),summarize,
+              n=sum(!is.na(Vowel)),
+              m=mean(Vowel,na.rm = TRUE),
+              sd=sd(Vowel,na.rm = TRUE),
+              se=sd/sqrt(n),
+              ci=se * qt (.975,n-1)
+)
+conf_v_ls
+conf_v_ls$category <- "Vowel" #add a colume
+
+conf_del1_ls <- ddply(data_ls, c("Nativeness","Position","Cluster"),summarize,
+              n=sum(!is.na(C1_deletion)),
+              m=mean(C1_deletion,na.rm = TRUE),
+              sd=sd(C1_deletion,na.rm = TRUE),
+              se=sd/sqrt(n),
+              ci=se * qt (.975,n-1)
+)
+conf_del1_ls
+conf_del1_ls$category <- "C1_deletion"
+
+conf_del2_ls <- ddply(data_ls, c("Nativeness","Position","Cluster"),summarize,
+              n=sum(!is.na(C1_deletion)),
+              m=mean(C2_deletion,na.rm = TRUE),
+              sd=sd(C2_deletion,na.rm = TRUE),
+              se=sd/sqrt(n),
+              ci=se * qt (.975,n-1)
+)
+conf_del2_ls
+conf_del2_ls$category <- "C2_deletion"
+
+conf_ch1_ls <- ddply(data_ls, c("Nativeness","Position","Cluster"),summarize,
+              n=sum(!is.na(C1_change)),
+              m=mean(C1_change,na.rm = TRUE),
+              sd=sd(C1_change,na.rm = TRUE),
+              se=sd/sqrt(n),
+              ci=se * qt (.975,n-1)
+)
+conf_ch1_ls
+conf_ch1_ls$category <- "C1_change"
+
+conf_ch2_ls <- ddply(data_ls, c("Nativeness","Position","Cluster"),summarize,
+              n=sum(!is.na(C2_change)),
+              m=mean(C2_change,na.rm = TRUE),
+              sd=sd(C2_change,na.rm = TRUE),
+              se=sd/sqrt(n),
+              ci=se * qt (.975,n-1)
+)
+conf_ch2_ls
+conf_ch2_ls$category <- "C2_change"
+
+#merge data
+category_data_ls <- rbind(conf_withoutV_ls, conf_v_ls, conf_del1_ls, conf_del2_ls, conf_ch1_ls, conf_ch2_ls)
+```
+
+
+```{r}
+category_data_ls$category <- factor(category_data_ls$category, levels = c("withoutV","Vowel", "C1_deletion", "C2_deletion", "C1_change", "C2_change"))
+
+plot_modif_ls<- ggplot(na.omit(category_data_ls), aes(x=Cluster, y=m, fill=category)) +              
+  geom_bar(stat="identity", position=position_dodge(), color="black", size=.3) +        
+  geom_errorbar(aes(ymin=m-ci,ymax=m+ci), width=0.2, size=.3, position=position_dodge(.9)) +   #for errorbar
+  #scale_x_discrete(limits=c("ls","ls","ls","LS","NS")) + # for x aes order 
+  facet_grid(Position ~ Nativeness) +
+  labs (x ="") +            # for x axis label
+  labs (y = "Precent") +
+  scale_fill_manual(name="Modifications",
+                    breaks=c("withoutV","Vowel","C1_deletion", "C2_deletion", "C1_change", "C2_change"),
+                    labels=c("Without V","Illusory V","C1 deletion", "C2 deletion", "C1 change", "C2 change"),
+                    values = c("rosybrown","coral4", "grey10", "grey35", "grey60","grey87")) +
+  theme(axis.title.x = element_text(vjust= 0), axis.title.y = element_text(vjust=0.7)) 
+```
+
+```{r}
+plot_modif_ls
+```
+
+
+####Analyses
+
+
+```{r}
+k <- 4 # the number of categories in our outcome variable
+#I and J are matrices that we???ll use to set up constraints on the covariance structure of the residuals.see Course Notes P96
+I <- diag(k-1) #should make matrix of 0's with diagonal of 1's, dimensions k-1 rows and k-1 columns
+J <- matrix(rep(1, (k-1)^2), c(k-1, k-1)) # should make k-1 x k-1 matrix of 1's 
+
+prior.ls <- list(
+  R = list (fix=1, V=(1/k) * (I+J), n=k-1), 
+  G=list(
+    G1=list(V = diag(3),    # G1, G2, G3 is the prior definition for subject random effects. 
+            n = 3),
+    G2=list(V = diag(2),
+            n = 2),
+    G4=list(V = diag(3),
+            n = 3),
+    G5=list(V = diag(2),
+            n = 2)))
+
+m.ls<- MCMCglmm(cbind(C2_change, C1_deletion, C1_change,Vowel) ~  trait-1 + trait:Nativeness,
+              # Vowel the final Outputs is the baseline Outputs, 
+               random = ~ us(trait) : subject+ # us() : subject for random effects
+                          us(Nativeness) : subject +
+                          us(trait) : stimulus + 
+                          us(Nativeness) : stimulus,
+                          #us(trait) : stimulus,
+               rcov   = ~ us(trait):units, 
+               data   = data_ls,
+               family = "multinomial4",
+               prior  = prior.ls,
+              # pl=TRUE,
+               slice = TRUE,
+               # singular.ok=TRUE,
+               thin   = 50,        # 3 parameters to set to control the sampling procels: nitt, burnin and thin. thin=n means want to keep every n-th sample.
+               burnin = 15001,       # burn-in period after which we start collecting samples
+               nitt   = 150001)       # how many samples we want to produce overall 
+
+summary(m.ls)
+HPDinterval(m.ls$Sol, 0.95)
+
+par(mfrow=c(8,2), mar=c(2,2,1,0))
+plot(m.ls$Sol)
+
+par(mfrow=c(8,2), mar=c(2,2,1,0))
+autocorr.plot(m.ls$Sol)
+
+```
+
+```{r}
+data_ls_cc<-subset(data_ls, Nativeness =="CC")
+
+k <- 4 # the number of categories in our outcome variable
+#I and J are matrices that we???ll use to set up constraints on the covariance structure of the residuals.see Course Notes P96
+I <- diag(k-1) #should make matrix of 0's with diagonal of 1's, dimensions k-1 rows and k-1 columns
+J <- matrix(rep(1, (k-1)^2), c(k-1, k-1)) # should make k-1 x k-1 matrix of 1's 
+
+prior.sl <- list(
+  R = list (fix=1, V=(1/k) * (I+J), n=k-1), 
+  G=list(
+    G1=list(V = diag(3),    # G1, G2, G3 is the prior definition for subject random effects. 
+            n = 3)))
+
+m.sl<- MCMCglmm(cbind(C1_deletion,C1_change,C2_change,Vowel) ~  trait-1 + trait:Item,
+              # Vowel the final Outputs is the baseline Outputs, 
+               random = ~ us(trait) : subject, # us() : subject for random effects
+                          #us(trait) : stimulus,
+               rcov   = ~ us(trait):units, 
+               data   = data_ls_cc,
+               family = "multinomial4",
+               prior  = prior.sl,
+              # pl=TRUE,
+               slice = TRUE,
+               # singular.ok=TRUE,
+               thin   = 50,        # 3 parameters to set to control the sampling procesl: nitt, burnin and thin. thin=n means want to keep every n-th sample.
+               burnin = 15001,       # burn-in period after which we start collecting samples
+               nitt   = 200001)       # how many samples we want to produce overall 
+
+summary(m.sl)
+HPDinterval(m.sl$Sol, 0.95)
+
+par(mfrow=c(8,2), mar=c(2,2,1,0))
+plot(m.sl$Sol)
+
+par(mfrow=c(8,2), mar=c(2,2,1,0))
+autocorr.plot(m.sl$Sol)
+
+```
+
+
+```{r}
+data_ls_cc<-subset(data_ls, Nativeness =="CC")
+prior.modif.ls = list(R = list(V = 10, fix = 1), G = list(G1 = list(V = 1, nu = 1, alpha.mu = 0, alpha.V = 1000)))
+
+modif.vowel.ls<- MCMCglmm(Vowel ~ Item, random = ~subject, data = data_ls_cc, family = "categorical", prior = prior.modif.ls, verbose = FALSE)
+summary(modif.vowel.ls)
+
+
+#data_ls_cc <- within(data_ls_cc, Item <- relevel(Item, ref = " initial"))
+modif.C1del.ls<- MCMCglmm(C1_deletion ~ Item, random = ~subject, data = data_ls_cc, family = "categorical", prior = prior.modif.ls, verbose = FALSE)
+summary(modif.C1del.ls)
+
+
+#data_ls_cc <- within(data_ls_cc, Item <- relevel(Item, ref = "pl medial"))
+modif.C1chg.ls<- MCMCglmm(C1_change ~ Item, random = ~subject, data = data_ls_cc, family = "categorical", prior = prior.modif.ls, verbose = FALSE)
+summary(modif.C1chg.ls)
+
+#data_ls_cc <- within(data_ls_cc, Item <- relevel(Item, ref = "pl medial"))
+modif.C2chg.ls<- MCMCglmm(C2_change ~ Item, random = ~subject, data = data_ls_cc, family = "categorical", prior = prior.modif.ls, verbose = FALSE)
+summary(modif.C2chg.ls)
+```
+
+****
+
+##ns clusters
+
+```{r}
+data_ns<-subset(data, Manner =="NS")
+data_ns$Item <- paste(data_ns$Cluster,data_ns$Position)
+data_ns$Item <- as.factor(data_ns$Item)
+```
+
+####Analyses
+
+
+```{r}
+k <- 6 # the number of categories in our outcome variable
+#I and J are matrices that we???ll use to set up constraints on the covariance structure of the residuals.see Course Notes P96
+I <- diag(k-1) #should make matrix of 0's with diagonal of 1's, dimensions k-1 rows and k-1 columns
+J <- matrix(rep(1, (k-1)^2), c(k-1, k-1)) # should make k-1 x k-1 matrix of 1's 
+
+prior.ns <- list(
+  R = list (fix=1, V=(1/k) * (I+J), n=k-1), 
+  G=list(
+    G1=list(V = diag(5),    # G1, G2, G3 is the prior definition for subject random effects. 
+            n = 5)))
+
+m.ns<- MCMCglmm(cbind(C1_deletion,C2_deletion,C1_change,C2_change,Vowel, Correct) ~  trait-1 + trait:Nativeness,
+              # Vowel the final Outputs is the baseline Outputs, 
+               random = ~ us(trait) : subject, # us() : subject for random effects
+                          #us(trait) : stimulus,
+               rcov   = ~ us(trait):units, 
+               data   = data_ns,
+               family = "multinomial6",
+               prior  = prior.ns,
+              # pl=TRUE,
+               slice = TRUE,
+               # singular.ok=TRUE,
+               thin   = 50,        # 3 parameters to set to control the sampling procens: nitt, burnin and thin. thin=n means want to keep every n-th sample.
+               burnin = 1501,       # burn-in period after which we start collecting samples
+               nitt   = 150001)       # how many samples we want to produce overall 
+
+summary(m.ns)
+HPDinterval(m.ns$Sol, 0.95)
+
+par(mfrow=c(8,2), mar=c(2,2,1,0))
+plot(m.ns$Sol)
+
+par(mfrow=c(8,2), mar=c(2,2,1,0))
+autocorr.plot(m.ns$Sol)
+
+```
+
+
+```{r}
+data_ns_cc<-subset(data_ns, Nativeness =="CC")
+prior.modif.ns = list(R = list(V = 10, fix = 1), G = list(G1 = list(V = 1, nu = 1, alpha.mu = 0, alpha.V = 1000)))
+
+modif.vowel.ns<- MCMCglmm(Vowel ~ Item, random = ~subject, data = data_ns_cc, family = "categorical", prior = prior.modif.ns, verbose = FALSE)
+summary(modif.vowel.ns)
+
+modif.C1del.ns<- MCMCglmm(C1_deletion ~ Item, random = ~subject, data = data_ns_cc, family = "categorical", prior = prior.modif.ns, verbose = FALSE)
+summary(modif.C1del.ns)
+
+
+modif.C2del.ns<- MCMCglmm(C2_deletion ~ Item, random = ~subject, data = data_ns_cc, family = "categorical", prior = prior.modif.ns, verbose = FALSE)
+summary(modif.C2del.ns)
+
+modif.C1chg.ns<- MCMCglmm(C1_change ~ Item, random = ~subject, data = data_ns_cc, family = "categorical", prior = prior.modif.ns, verbose = FALSE)
+summary(modif.C1chg.ns)
+
+modif.C2chg.ns<- MCMCglmm(C2_change ~ Item, random = ~subject, data = data_ns_cc, family = "categorical", prior = prior.modif.ns, verbose = FALSE)
+summary(modif.C2chg.ns)
+```
+
+
+***
+##Quality of illusory vowels
+
+```{r}
+data_v<-subset(data, V_quality !="NA" & C1 == c("p","t","k"))
+```
+
+
+```{r}
+k <- 6 # the number of categories in our outcome variable
+#I and J are matrices that we???ll use to set up constraints on the covariance structure of the residuals.see Course Notes P96
+I <- diag(k-1) #should make matrix of 0's with diagonal of 1's, dimensions k-1 rows and k-1 columns
+J <- matrix(rep(1, (k-1)^2), c(k-1, k-1)) # should make k-1 x k-1 matrix of 1's 
+
+prior.v.quality <- list(
+  R = list (fix=1, V=(1/k) * (I+J), n=k-1), 
+  G=list(
+    G1=list(V = diag(5),    # G1, G2, G3 is the prior definition for subject random effects. 
+            n = 5),
+    G2=list(V = diag(3),    # G1, G2, G3 is the prior definition for subject random effects. 
+            n = 3),
+    G3=list(V = diag(5),
+            n = 5),
+    G4=list(V = diag(3),    # G1, G2, G3 is the prior definition for subject random effects. 
+            n = 3)))
+
+m.v.quality<- MCMCglmm(V_quality ~  trait-1 + trait:C1,
+              # Vowel the final Outputs is the baseline Outputs, 
+               random = ~ us(trait) : subject + # us() : subject for random effects
+                          us(C1) : subject +
+                          us(trait) : stimulus +
+                          us(C1) : stimulu,
+               rcov   = ~ us(trait):units, 
+               data   = data_v,
+               family = "categorical",
+               prior  = prior.v.quality,
+              # pl=TRUE,
+               slice = TRUE,
+               # singular.ok=TRUE,
+               thin   = 50,        # 3 parameters to set to control the sampling procesl: nitt, burnin and thin. thin=n means want to keep every n-th sample.
+               burnin = 5001,       # burn-in period after which we start collecting samples
+               nitt   = 150001)       # how many samples we want to produce overall 
+
+summary(m.v.quality)
+HPDinterval(m.v.quality$Sol, 0.95)
+
+par(mfrow=c(8,2), mar=c(2,2,1,0))
+plot(m.v.quality$Sol)
+
+par(mfrow=c(8,2), mar=c(2,2,1,0))
+autocorr.plot(m.v.quality$Sol)
+```
+
+
+#### P.S. Why there is no interaction among fixed factos? Notice that we ran into trouble when we included the Nativeness * Manner * Position interaction. R gives us a warning "some quantities such as z, residuals, SEs may be inaccurate due to convergence at a half-step". What's happening is so called "Quasi-separation" which means that the model effectively includes dummy indicators for groups with observed frequencies of zero, so that the ML estimates for certain coefficients are running off to ± ∞. When zero counts are present in a dataset, the ML estimates for certain main effects and/or interactions may approach infinity. The problem is that we are trying to estimate effects about which we have very little information. Because sometimes we can't really estimate the interactions—and the interactions make the model more difficult to interpret—it's a good idea to eliminate them (see.https://onlinecourses.science.psu.edu/stat504/node/226).
+
+
+
+
+
+
+## References: 
+
+####VGAM:
+- https://onlinecourses.science.psu.edu/stat504/node/226
+- https://cran.r-project.org/web/packages/VGAM/VGAM.pdf
+
+####MCMCGLMM:
+- Hadfield J.D. (2017). MCMCglmm course notes. MCMCglmm R package. 
+- Wilson et al. (2014) Effects of acoustic–phonetic detail on cross-language speech production. Journal of Memory and Language 77 (2014) 1–24.
+- https://hlplab.wordpress.com/2009/05/07/multinomial-random-effects-models-in-r/
+- https://github.com/tmalsburg/MCMCglmm-intro
+
+
+
+
