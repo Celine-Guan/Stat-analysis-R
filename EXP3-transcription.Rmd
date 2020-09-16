@@ -700,7 +700,7 @@ autocorr.plot(m.ss$Sol)
 ```
 
 
-```{}
+```{r}
 data_ss_cc<-subset(data_ss, Nativeness =="CC" & burst_stimuli != "NA")
 prior.modif.ss = list(R = list(V = 12, fix = 1), G = list(G1 = list(V = 1, nu = 1, alpha.mu = 0, alpha.V = 1000),
                                                           G2 = list(V = 1, nu = 1, alpha.mu = 0, alpha.V = 1000)))
@@ -1040,7 +1040,7 @@ autocorr.plot(m.sn$Sol)
 
 
 
-```{}
+```{r}
 k <- 5 # the number of categories in our outcome variable
 #I and J are matrices that we???ll use to set up constraints on the covariance structure of the residuals.see Course Notes P96
 I <- diag(k-1) #should make matrix of 0's with diagonal of 1's, dimensions k-1 rows and k-1 columns
@@ -1079,7 +1079,7 @@ autocorr.plot(m.sn$Sol)
 ```
 
 
-```{}
+```{r}
 data_sn_cc<-subset(data_sn, Nativeness =="CC")
 prior.modif.sn = list(R = list(V = 10, fix = 1), G = list(G1 = list(V = 1, nu = 1, alpha.mu = 0, alpha.V = 1000)))
 
