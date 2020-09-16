@@ -2,11 +2,11 @@
 #### Qianwen Guan
 
 ## Libraries required for this analysis: 
-car
-plyr
-dplyr
-ggplot2
-lsr
+- car
+- plyr
+- dplyr
+- ggplot2
+- lsr
 lme4
 lmerTest
 emmeans
