@@ -22,9 +22,9 @@ This repository contains analysis of my thesis 'Emerging modes of temporal coord
 
 ## R script files contained in this analysis: 
 
-1. **Linear Rgression analysis.Rmd**  
+1. **Linear Mixed-effects models.Rmd**  
    Analysis of ABX discrimination of non-native consonnant clusters
-2. **Linear mixed-effects models.Rmd**  
+2. **Generalised Linear Mixed-effects analysis.Rmd**  
    Analysis of identification of non-native consonnant clusters 
 3. **Generalised Linear Mixed-effects Models using a Markov chain Monte Carlo approach.Rmd**  
    Analysis of transcription of non-native consonnant clusters in Pinyin 
