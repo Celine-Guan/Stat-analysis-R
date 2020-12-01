@@ -2,10 +2,20 @@
 
 This repository contains analysis of my thesis 'Emerging modes of temporal coordination : Mandarin and non-native consonant clusters' using R.
 
+**Including: **
+
+- Graphical Analysis/ Data visualization
+- Model Building
+- Model Diagnostics
+- Model fitting
+
+
 ## The statistical methods used in the current study are as follows: 
 
 - Linear regression to study relationships between two continuous variables. 
 - Generalised Linear Mixed-effects Models using a Markov chain Monte Carlo approach under a Bayesian statistical framework for multinomial data analysis.
+
+
 
 ## Libraries required for this analysis in R: 
 - car
