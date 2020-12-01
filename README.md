@@ -1,4 +1,4 @@
-# Statistical Analysis with R for the study: Emerging modes of temporal coordination : Mandarin and non-native consonant clusters
+# Statistical Analysis with R for 
 
 This repository contains analysis of my thesis 'Emerging modes of temporal coordination : Mandarin and non-native consonant clusters' using R.
 ##
