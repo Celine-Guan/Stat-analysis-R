@@ -1,9 +1,13 @@
-# Statistical Analysis with R for 
+# Statistical Analysis with R
 
 This repository contains analysis of my thesis 'Emerging modes of temporal coordination : Mandarin and non-native consonant clusters' using R.
-##
 
-## Libraries required for this analysis: 
+## The statistical methods used in the current study are as follows: 
+
+- Linear regression to study relationships between two continuous variables. 
+- Generalised Linear Mixed-effects Models using a Markov chain Monte Carlo approach under a Bayesian statistical framework for multinomial data analysis.
+
+## Libraries required for this analysis in R: 
 - car
 - plyr
 - dplyr
@@ -18,11 +22,11 @@ This repository contains analysis of my thesis 'Emerging modes of temporal coord
 
 ## R script files contained in this analysis: 
 
-1. **EXP1-ABX_Man_Russian.Rmd**  
+1. **Linear Rgression analysis.Rmd**  
    Analysis of ABX discrimination of non-native consonnant clusters
-2. **EXP2-Identification.Rmd**  
+2. **Linear mixed-effects models.Rmd**  
    Analysis of identification of non-native consonnant clusters 
-3. **EXP3-transcritpion.Rmd**  
+3. **Generalised Linear Mixed-effects Models using a Markov chain Monte Carlo approach.Rmd**  
    Analysis of transcription of non-native consonnant clusters in Pinyin 
    
 
